@@ -1,0 +1,39 @@
+services:
+  # Discord Bot Service
+  - type: web
+    name: homework-tracker-bot
+    env: node
+    plan: free
+    buildCommand: cd bot/Website-Bot-Homework-main && npm install
+    startCommand: cd bot/Website-Bot-Homework-main && node index.js
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: API_URL
+        value: https://homework-tracker-server.onrender.com
+
+  # Express Server Service  
+  - type: web
+    name: homework-tracker-server
+    env: node
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: cd server && node index.js
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: PORT
+        value: 5000
+
+  # Next.js Client Service
+  - type: web
+    name: homework-tracker-client
+    env: node
+    plan: free
+    buildCommand: cd client && npm install && npm run build
+    startCommand: cd client && npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://homework-tracker-server.onrender.com
+      - key: PORT
+        value: 3000
