@@ -7,6 +7,10 @@ const path = require('path');
 // Determine which service to run based on environment
 const service = process.env.SERVICE || 'client';
 
+// Default API URL - you can update this after deployment
+const defaultApiUrl = process.env.API_URL || 'http://localhost:5000';
+const defaultClientApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
 let command, args, cwd;
 
 switch (service) {
