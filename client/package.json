@@ -14,7 +14,8 @@
     "react-dom": "^18",
     "framer-motion": "^10.16.16",
     "axios": "^1.6.2",
-    "date-fns": "^2.30.0"
+    "date-fns": "^2.30.0",
+    "lucide-react": "^0.294.0"
   },
   "devDependencies": {
     "typescript": "^5",
