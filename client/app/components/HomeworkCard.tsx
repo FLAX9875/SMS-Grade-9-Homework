@@ -12,6 +12,10 @@ interface Homework {
   dueDate: string
   description: string
   status: 'Done' | 'Not Done'
+  completedBy: Array<{
+    username: string
+    completedAt: string
+  }>
   createdAt: string
 }
 
@@ -19,7 +23,7 @@ interface HomeworkCardProps {
   homework: Homework
   onClick: () => void
   onStatusToggle: () => void
-  getStatusColor: (status: string) => string
+  getStatusColor: (homework: Homework) => string
   getUrgencyColor: (dueDate: string) => string
 }
 
@@ -62,7 +66,7 @@ export default function HomeworkCard({
             onStatusToggle()
           }}
           className={`p-2 rounded-full transition-colors ${
-            homework.status === 'Done'
+            homework.completedBy.length > 0
               ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
               : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
           }`}
@@ -80,8 +84,8 @@ export default function HomeworkCard({
         </div>
         
         <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${getStatusColor(homework.status)}`}>
-            {homework.status}
+          <span className={`text-sm font-medium ${getStatusColor(homework)}`}>
+            {homework.completedBy.length > 0 ? 'Done' : 'Not Done'}
           </span>
           <span className="text-xs text-gray-500">
             {format(dueDateWinnipeg, 'MMM dd, yyyy')}
