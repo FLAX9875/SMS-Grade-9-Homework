@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
 import { formatDistanceToNow, format } from 'date-fns'
+import { zonedTimeToUtc, utcToZonedTime, format as formatTz } from 'date-fns-tz'
 import HomeworkCard from './components/HomeworkCard'
 import HomeworkModal from './components/HomeworkModal'
 import Header from './components/Header'
@@ -19,6 +20,7 @@ interface Homework {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+const WINNIPEG_TIMEZONE = 'America/Winnipeg'
 
 export default function Home() {
   const [homework, setHomework] = useState<Homework[]>([])
@@ -59,8 +61,17 @@ export default function Home() {
   const handleStatusToggle = async (id: string, currentStatus: string) => {
     try {
       const newStatus = currentStatus === 'Done' ? 'Not Done' : 'Done'
-      await axios.put(`${API_URL}/api/homework/${id}`, { status: newStatus })
-      fetchHomework() // Refresh the list
+      
+      if (newStatus === 'Done') {
+        // If marking as done, delete the homework
+        await axios.delete(`${API_URL}/api/homework/${id}`)
+        // Remove from local state immediately
+        setHomework(prev => prev.filter(item => item._id !== id))
+      } else {
+        // If marking as not done, just update status
+        await axios.put(`${API_URL}/api/homework/${id}`, { status: newStatus })
+        fetchHomework() // Refresh the list
+      }
     } catch (error) {
       console.error('Error updating homework status:', error)
     }
@@ -72,8 +83,9 @@ export default function Home() {
 
   const getUrgencyColor = (dueDate: string) => {
     const due = new Date(dueDate)
-    const now = new Date()
-    const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE)
+    const dueWinnipeg = utcToZonedTime(due, WINNIPEG_TIMEZONE)
+    const diffDays = Math.ceil((dueWinnipeg.getTime() - nowWinnipeg.getTime()) / (1000 * 60 * 60 * 24))
     
     if (diffDays < 0) return 'text-red-500' // Overdue
     if (diffDays <= 1) return 'text-red-400' // Due today/tomorrow
@@ -107,8 +119,8 @@ export default function Home() {
           transition={{ duration: 0.5 }}
           className="mb-8"
         >
-          <h1 className="text-4xl font-bold text-white mb-2">SMS Grade 9 Homework</h1>
-          <p className="text-dark-text-secondary">
+          <h1 className="text-2xl font-semibold text-white mb-2">SMS Grade 9 Homework</h1>
+          <p className="text-dark-text-secondary text-sm">
             {homework.length} assignment{homework.length !== 1 ? 's' : ''} total
           </p>
         </motion.div>
@@ -120,7 +132,7 @@ export default function Home() {
             className="text-center py-16"
           >
             <div className="text-6xl mb-4">📚</div>
-            <h2 className="text-2xl font-semibold text-white mb-2">No homework yet</h2>
+            <h2 className="text-2xl font-semibold text-white mb-2">No homework!</h2>
             <p className="text-dark-text-secondary">
               Add homework using the Discord bot or wait for assignments to be added.
             </p>
