@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { formatDistanceToNow, format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns'
+import { utcToZonedTime } from 'date-fns-tz'
 import { X, CheckCircle, Clock, BookOpen, Calendar } from 'lucide-react'
 
 interface Homework {
@@ -29,14 +30,16 @@ export default function HomeworkModal({
   getStatusColor,
   getUrgencyColor
 }: HomeworkModalProps) {
+  const WINNIPEG_TIMEZONE = 'America/Winnipeg'
   const dueDate = new Date(homework.dueDate)
-  const now = new Date()
-  const isOverdue = dueDate < now && homework.status === 'Not Done'
+  const dueDateWinnipeg = utcToZonedTime(dueDate, WINNIPEG_TIMEZONE)
+  const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE)
+  const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.status === 'Not Done'
   
   const getTimeRemaining = () => {
-    const days = differenceInDays(dueDate, now)
-    const hours = differenceInHours(dueDate, now) % 24
-    const minutes = differenceInMinutes(dueDate, now) % 60
+    const days = differenceInDays(dueDateWinnipeg, nowWinnipeg)
+    const hours = differenceInHours(dueDateWinnipeg, nowWinnipeg) % 24
+    const minutes = differenceInMinutes(dueDateWinnipeg, nowWinnipeg) % 60
     
     if (days > 0) return `${days}d ${hours}h ${minutes}m`
     if (hours > 0) return `${hours}h ${minutes}m`
@@ -113,7 +116,7 @@ export default function HomeworkModal({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-dark-text-secondary mb-1">Date</p>
-                <p className="text-white font-medium">{format(dueDate, 'EEEE, MMMM dd, yyyy')}</p>
+                <p className="text-white font-medium">{format(dueDateWinnipeg, 'EEEE, MMMM dd, yyyy')}</p>
               </div>
               
               <div>
