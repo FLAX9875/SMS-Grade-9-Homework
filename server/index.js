@@ -44,6 +44,10 @@ const homeworkSchema = new mongoose.Schema({
     enum: ['Not Done', 'Done'],
     default: 'Not Done'
   },
+  completedBy: [{
+    username: String,
+    completedAt: { type: Date, default: Date.now }
+  }],
   createdAt: {
     type: Date,
     default: Date.now
@@ -114,6 +118,40 @@ app.put('/api/homework/:id', async (req, res) => {
       return res.status(404).json({ error: 'Homework not found' });
     }
     
+    res.json(homework);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Personal completion route
+app.post('/api/homework/:id/complete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const homework = await Homework.findById(id);
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    // Check if user already completed this homework
+    const alreadyCompleted = homework.completedBy.some(completion => completion.username === username);
+    
+    if (alreadyCompleted) {
+      // Remove completion
+      homework.completedBy = homework.completedBy.filter(completion => completion.username !== username);
+    } else {
+      // Add completion
+      homework.completedBy.push({ username, completedAt: new Date() });
+    }
+    
+    await homework.save();
     res.json(homework);
   } catch (error) {
     res.status(500).json({ error: error.message });
