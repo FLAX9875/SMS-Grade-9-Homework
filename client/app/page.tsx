@@ -107,7 +107,7 @@ export default function Home() {
           transition={{ duration: 0.5 }}
           className="mb-8"
         >
-          <h1 className="text-4xl font-bold text-white mb-2">Your Homework</h1>
+          <h1 className="text-4xl font-bold text-white mb-2">SMS Grade 9 Homework</h1>
           <p className="text-dark-text-secondary">
             {homework.length} assignment{homework.length !== 1 ? 's' : ''} total
           </p>
@@ -149,6 +149,15 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Footer with credit */}
+      <footer className="mt-16 py-8 border-t border-dark-border">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-dark-text-secondary text-sm">
+            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework Tracker
+          </p>
+        </div>
+      </footer>
 
       <AnimatePresence>
         {isModalOpen && selectedHomework && (
