@@ -12,6 +12,10 @@ interface Homework {
   dueDate: string
   description: string
   status: 'Done' | 'Not Done'
+  completedBy: Array<{
+    username: string
+    completedAt: string
+  }>
   createdAt: string
 }
 
@@ -19,7 +23,7 @@ interface HomeworkModalProps {
   homework: Homework
   onClose: () => void
   onStatusToggle: () => void
-  getStatusColor: (status: string) => string
+  getStatusColor: (homework: Homework) => string
   getUrgencyColor: (dueDate: string) => string
 }
 
@@ -34,7 +38,7 @@ export default function HomeworkModal({
   const dueDate = new Date(homework.dueDate)
   const dueDateWinnipeg = utcToZonedTime(dueDate, WINNIPEG_TIMEZONE)
   const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE)
-  const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.status === 'Not Done'
+  const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.completedBy.length === 0
   
   const getTimeRemaining = () => {
     const days = differenceInDays(dueDateWinnipeg, nowWinnipeg)
@@ -86,9 +90,9 @@ export default function HomeworkModal({
           {/* Status Section */}
           <div className="flex items-center justify-between p-4 bg-gray-900/50 rounded-lg">
             <div className="flex items-center">
-              <CheckCircle className={`w-6 h-6 mr-3 ${getStatusColor(homework.status)}`} />
-              <span className={`text-lg font-medium ${getStatusColor(homework.status)}`}>
-                {homework.status}
+              <CheckCircle className={`w-6 h-6 mr-3 ${getStatusColor(homework)}`} />
+              <span className={`text-lg font-medium ${getStatusColor(homework)}`}>
+                {homework.completedBy.length > 0 ? 'Done' : 'Not Done'}
               </span>
             </div>
             
@@ -97,12 +101,12 @@ export default function HomeworkModal({
               whileTap={{ scale: 0.95 }}
               onClick={onStatusToggle}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                homework.status === 'Done'
+                homework.completedBy.length > 0
                   ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                   : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
               }`}
             >
-              Mark as {homework.status === 'Done' ? 'Not Done' : 'Done'}
+              Mark as {homework.completedBy.length > 0 ? 'Not Done' : 'Done'}
             </motion.button>
           </div>
 
