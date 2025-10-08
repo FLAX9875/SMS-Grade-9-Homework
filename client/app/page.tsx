@@ -16,6 +16,10 @@ interface Homework {
   dueDate: string
   description: string
   status: 'Done' | 'Not Done'
+  completedBy: Array<{
+    username: string
+    completedAt: string
+  }>
   createdAt: string
 }
 
@@ -27,6 +31,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [username, setUsername] = useState('')
+
+  // Get or set username
+  useEffect(() => {
+    const savedUsername = localStorage.getItem('homework-username')
+    if (savedUsername) {
+      setUsername(savedUsername)
+    } else {
+      const newUsername = prompt('Enter your name for the homework tracker:') || 'Student'
+      setUsername(newUsername)
+      localStorage.setItem('homework-username', newUsername)
+    }
+  }, [])
 
   const fetchHomework = async () => {
     try {
@@ -60,25 +77,44 @@ export default function Home() {
 
   const handleStatusToggle = async (id: string, currentStatus: string) => {
     try {
-      const newStatus = currentStatus === 'Done' ? 'Not Done' : 'Done'
+      if (!username) return
       
-      if (newStatus === 'Done') {
-        // If marking as done, delete the homework
-        await axios.delete(`${API_URL}/api/homework/${id}`)
-        // Remove from local state immediately
-        setHomework(prev => prev.filter(item => item._id !== id))
-      } else {
-        // If marking as not done, just update status
-        await axios.put(`${API_URL}/api/homework/${id}`, { status: newStatus })
-        fetchHomework() // Refresh the list
-      }
+      // Use personal completion API
+      await axios.post(`${API_URL}/api/homework/${id}/complete`, { username })
+      
+      // Update local state to reflect personal completion
+      setHomework(prev => prev.map(item => {
+        if (item._id === id) {
+          const isCompleted = item.completedBy.some(completion => completion.username === username)
+          if (isCompleted) {
+            // Remove from personal completion
+            return {
+              ...item,
+              completedBy: item.completedBy.filter(completion => completion.username !== username)
+            }
+          } else {
+            // Add to personal completion
+            return {
+              ...item,
+              completedBy: [...item.completedBy, { username, completedAt: new Date().toISOString() }]
+            }
+          }
+        }
+        return item
+      }))
     } catch (error) {
       console.error('Error updating homework status:', error)
     }
   }
 
-  const getStatusColor = (status: string) => {
-    return status === 'Done' ? 'text-green-400' : 'text-red-400'
+  const getStatusColor = (homework: Homework) => {
+    const isPersonallyCompleted = homework.completedBy.some(completion => completion.username === username)
+    return isPersonallyCompleted ? 'text-green-400' : 'text-red-400'
+  }
+
+  const getPersonalStatus = (homework: Homework) => {
+    const isPersonallyCompleted = homework.completedBy.some(completion => completion.username === username)
+    return isPersonallyCompleted ? 'Done' : 'Not Done'
   }
 
   const getUrgencyColor = (dueDate: string) => {
@@ -140,7 +176,13 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <AnimatePresence>
-              {homework.map((item, index) => (
+              {homework
+                .filter(item => {
+                  // Only show items that are not personally completed
+                  const isPersonallyCompleted = item.completedBy.some(completion => completion.username === username)
+                  return !isPersonallyCompleted
+                })
+                .map((item, index) => (
                 <motion.div
                   key={item._id}
                   initial={{ opacity: 0, y: 20 }}
@@ -151,7 +193,7 @@ export default function Home() {
                   <HomeworkCard
                     homework={item}
                     onClick={() => handleCardClick(item)}
-                    onStatusToggle={() => handleStatusToggle(item._id, item.status)}
+                    onStatusToggle={() => handleStatusToggle(item._id, getPersonalStatus(item))}
                     getStatusColor={getStatusColor}
                     getUrgencyColor={getUrgencyColor}
                   />
@@ -176,7 +218,7 @@ export default function Home() {
           <HomeworkModal
             homework={selectedHomework}
             onClose={handleCloseModal}
-            onStatusToggle={() => handleStatusToggle(selectedHomework._id, selectedHomework.status)}
+            onStatusToggle={() => handleStatusToggle(selectedHomework._id, getPersonalStatus(selectedHomework))}
             getStatusColor={getStatusColor}
             getUrgencyColor={getUrgencyColor}
           />
