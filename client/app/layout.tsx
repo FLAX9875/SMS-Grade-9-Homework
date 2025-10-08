@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Homework Tracker',
-  description: 'A modern homework tracking system with Discord bot integration',
+  title: 'SMS Grade 9 Homework',
+  description: 'SMS Grade 9 Homework Tracker',
 }
 
 export default function RootLayout({
