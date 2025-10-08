@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { formatDistanceToNow, format } from 'date-fns'
+import { utcToZonedTime } from 'date-fns-tz'
 import { CheckCircle, Clock, BookOpen } from 'lucide-react'
 
 interface Homework {
@@ -29,8 +30,11 @@ export default function HomeworkCard({
   getStatusColor,
   getUrgencyColor
 }: HomeworkCardProps) {
+  const WINNIPEG_TIMEZONE = 'America/Winnipeg'
   const dueDate = new Date(homework.dueDate)
-  const isOverdue = dueDate < new Date() && homework.status === 'Not Done'
+  const dueDateWinnipeg = utcToZonedTime(dueDate, WINNIPEG_TIMEZONE)
+  const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE)
+  const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.status === 'Not Done'
   
   return (
     <motion.div
@@ -71,7 +75,7 @@ export default function HomeworkCard({
         <div className="flex items-center text-sm">
           <Clock className="w-4 h-4 mr-2 text-gray-500" />
           <span className={getUrgencyColor(homework.dueDate)}>
-            {isOverdue ? 'Overdue' : `Due ${formatDistanceToNow(dueDate, { addSuffix: true })}`}
+            {isOverdue ? 'Overdue' : `Due ${formatDistanceToNow(dueDateWinnipeg, { addSuffix: true })}`}
           </span>
         </div>
         
@@ -80,7 +84,7 @@ export default function HomeworkCard({
             {homework.status}
           </span>
           <span className="text-xs text-gray-500">
-            {format(dueDate, 'MMM dd, yyyy')}
+            {format(dueDateWinnipeg, 'MMM dd, yyyy')}
           </span>
         </div>
       </div>
