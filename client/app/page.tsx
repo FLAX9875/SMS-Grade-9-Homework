@@ -257,13 +257,11 @@ export default function Home() {
             <div className="text-6xl mb-4">
               {activeTab === 'main' ? '🎉' : '✅'}
             </div>
-            <h2 className="text-2xl font-semibold text-white mb-2">
-              {activeTab === 'main' ? 'All caught up!' : 'No completed homework'}
-            </h2>
+            <h2 className="text-2xl font-semibold text-white mb-2">No homework!</h2>
             <p className="text-dark-text-secondary">
               {activeTab === 'main' 
                 ? 'You have no pending homework assignments.' 
-                : 'Complete some homework to see it here.'}
+                : 'No homework! Woohoo, you rock!'}
             </p>
           </motion.div>
         )}
@@ -273,7 +271,7 @@ export default function Home() {
       <footer className="mt-16 py-8 border-t border-dark-border">
         <div className="container mx-auto px-4 text-center">
           <p className="text-dark-text-secondary text-sm">
-            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework Tracker
+            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework 
           </p>
         </div>
       </footer>
