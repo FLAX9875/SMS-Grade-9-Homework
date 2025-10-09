@@ -1,10 +1,12 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { utcToZonedTime } = require('date-fns-tz');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
 // Middleware
 app.use(cors());
@@ -55,6 +57,51 @@ const homeworkSchema = new mongoose.Schema({
 });
 
 const Homework = mongoose.model('Homework', homeworkSchema);
+
+// Function to clean up completed homework after 2 days
+async function cleanupCompletedHomework() {
+  try {
+    const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE);
+    const twoDaysAgo = new Date(nowWinnipeg);
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    
+    // Find homework that has been completed by someone and the completion was more than 2 days ago
+    const homeworkToDelete = await Homework.find({
+      'completedBy.0': { $exists: true }, // Has at least one completion
+      'completedBy.completedAt': { $lt: twoDaysAgo }
+    });
+    
+    if (homeworkToDelete.length > 0) {
+      console.log(`Cleaning up ${homeworkToDelete.length} completed homework items older than 2 days`);
+      
+      // Delete homework where all completions are older than 2 days
+      for (const homework of homeworkToDelete) {
+        const recentCompletions = homework.completedBy.filter(completion => 
+          new Date(completion.completedAt) > twoDaysAgo
+        );
+        
+        if (recentCompletions.length === 0) {
+          // All completions are older than 2 days, delete the homework
+          await Homework.findByIdAndDelete(homework._id);
+          console.log(`Deleted homework: ${homework.title}`);
+        } else {
+          // Some completions are recent, keep the homework but remove old completions
+          homework.completedBy = recentCompletions;
+          await homework.save();
+          console.log(`Updated homework: ${homework.title} - removed old completions`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up completed homework:', error);
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupCompletedHomework, 60 * 60 * 1000);
+
+// Run initial cleanup on server start
+setTimeout(cleanupCompletedHomework, 5000); // Wait 5 seconds after server start
 
 // Routes
 app.get('/api/homework', async (req, res) => {
