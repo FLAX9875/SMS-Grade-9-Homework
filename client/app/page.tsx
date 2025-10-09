@@ -32,6 +32,7 @@ export default function Home() {
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [username, setUsername] = useState('')
+  const [activeTab, setActiveTab] = useState<'main' | 'done'>('main')
 
   // Get or set username
   useEffect(() => {
@@ -161,6 +162,37 @@ export default function Home() {
           </p>
         </motion.div>
 
+        {/* Tab Navigation */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="mb-8"
+        >
+          <div className="flex space-x-1 bg-dark-card p-1 rounded-lg w-fit">
+            <button
+              onClick={() => setActiveTab('main')}
+              className={`px-6 py-3 rounded-md font-medium transition-all duration-200 ${
+                activeTab === 'main'
+                  ? 'bg-blue-500 text-white shadow-lg'
+                  : 'text-dark-text-secondary hover:text-white hover:bg-dark-border'
+              }`}
+            >
+              Main
+            </button>
+            <button
+              onClick={() => setActiveTab('done')}
+              className={`px-6 py-3 rounded-md font-medium transition-all duration-200 ${
+                activeTab === 'done'
+                  ? 'bg-green-500 text-white shadow-lg'
+                  : 'text-dark-text-secondary hover:text-white hover:bg-dark-border'
+              }`}
+            >
+              Done
+            </button>
+          </div>
+        </motion.div>
+
         {homework.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
@@ -178,9 +210,14 @@ export default function Home() {
             <AnimatePresence>
               {homework
                 .filter(item => {
-                  // Only show items that are not personally completed
                   const isPersonallyCompleted = item.completedBy.some(completion => completion.username === username)
-                  return !isPersonallyCompleted
+                  if (activeTab === 'main') {
+                    // Show items that are not personally completed
+                    return !isPersonallyCompleted
+                  } else {
+                    // Show items that are personally completed
+                    return isPersonallyCompleted
+                  }
                 })
                 .map((item, index) => (
                 <motion.div
@@ -201,6 +238,34 @@ export default function Home() {
               ))}
             </AnimatePresence>
           </div>
+        )}
+
+        {/* Show message when no items in current tab */}
+        {homework.length > 0 && homework.filter(item => {
+          const isPersonallyCompleted = item.completedBy.some(completion => completion.username === username)
+          if (activeTab === 'main') {
+            return !isPersonallyCompleted
+          } else {
+            return isPersonallyCompleted
+          }
+        }).length === 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-16"
+          >
+            <div className="text-6xl mb-4">
+              {activeTab === 'main' ? '🎉' : '✅'}
+            </div>
+            <h2 className="text-2xl font-semibold text-white mb-2">
+              {activeTab === 'main' ? 'All caught up!' : 'No completed homework'}
+            </h2>
+            <p className="text-dark-text-secondary">
+              {activeTab === 'main' 
+                ? 'You have no pending homework assignments.' 
+                : 'Complete some homework to see it here.'}
+            </p>
+          </motion.div>
         )}
       </main>
 
