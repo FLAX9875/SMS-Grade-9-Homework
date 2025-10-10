@@ -205,9 +205,37 @@ app.post('/api/homework/:id/complete', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+// Health check endpoint (enhanced)
+app.get('/health', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const dbState = mongoose.connection.readyState; // 1 connected, 2 connecting, 0 disconnected, 3 disconnecting
+    const isDbUp = dbState === 1;
+
+    // Basic metrics
+    const [totalHomework, upcomingCount, overdueCount] = await Promise.all([
+      Homework.countDocuments({}),
+      Homework.countDocuments({ dueDate: { $gte: new Date() } }),
+      Homework.countDocuments({ dueDate: { $lt: new Date() } })
+    ]);
+
+    const latencyMs = Date.now() - startedAt;
+
+    res.json({
+      status: 'OK',
+      api: { up: true, latencyMs },
+      db: { up: isDbUp, state: dbState },
+      metrics: {
+        totalHomework,
+        upcomingCount,
+        overdueCount
+      },
+      serverTimeUtc: new Date().toISOString(),
+      timezone: WINNIPEG_TIMEZONE
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'ERROR', error: error.message });
+  }
 });
 
 app.listen(PORT, () => {
