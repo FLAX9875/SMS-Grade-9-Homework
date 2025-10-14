@@ -9,7 +9,7 @@ interface ContactModalProps {
   onClose: () => void
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-1.onrender.com'
 
 export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const [formData, setFormData] = useState({
