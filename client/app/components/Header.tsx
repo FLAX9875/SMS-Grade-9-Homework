@@ -3,9 +3,11 @@
 import { motion } from 'framer-motion'
 import { formatDistanceToNow } from 'date-fns'
 
-interface HeaderProps {}
+interface HeaderProps {
+  onContactClick?: () => void
+}
 
-export default function Header({}: HeaderProps) {
+export default function Header({ onContactClick }: HeaderProps) {
   return (
     <motion.header
       initial={{ opacity: 0, y: -20 }}
@@ -23,6 +25,12 @@ export default function Header({}: HeaderProps) {
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
+            <button
+              onClick={onContactClick}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-sm font-medium"
+            >
+              Contact Us
+            </button>
             <div className="text-right">
               <p className="text-sm text-dark-text-secondary">Auto-refresh</p>
               <p className="text-xs text-gray-500">Every 30 seconds</p>
