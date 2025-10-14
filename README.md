@@ -11,6 +11,11 @@ A modern, full-stack homework tracking system with Discord bot integration. Feat
 - **Status Tracking**: Mark homework as Done or Not Done
 - **Due Date Countdown**: Visual countdown timers and urgency indicators
 - **Modal Details**: Click homework cards to see full descriptions and details
+- **Study Resources**: Add and browse study links via Discord bot
+- **Contact System**: Submit suggestions and report issues with Discord integration
+- **Admin Controls**: Edit homework assignments with admin permissions
+- **Rate Limiting**: Built-in protection against spam and abuse
+- **Creator Tracking**: Track who created each homework assignment
 
 ## 📁 Project Structure
 
@@ -109,36 +114,53 @@ npm run dev:bot     # Discord bot
 
 ### 3. Bot Commands
 
-- `/addhomework [title] [subject] [duedate: yyyy-mm-dd] [description]` - Add new homework
+- `/addhomework [title] [subject] [duedate: yyyy-mm-dd] [creator] [description]` - Add new homework
 - `/removehomework [title]` - Remove homework by title
 - `/listhomework [status]` - List all homework (optional status filter)
+- `/editprompt [homework_id] [field] [new_value]` - Edit homework (Admin only)
+- `/link [url] [title] [description]` - Add study resource link
+- `/deletelink [link_id]` - Delete study resource link
+- `/database` - View completion status for all users
+- `/showwebsite` - Show website/API/DB status
 
 ## 🌐 API Endpoints
 
-### GET /api/homework
-Returns all homework assignments
+### Homework Endpoints
+- **GET /api/homework** - Returns all homework assignments
+- **POST /api/homework** - Adds a new homework assignment
+- **DELETE /api/homework/:id** - Deletes a homework assignment by ID
+- **PUT /api/homework/:id** - Updates homework status
+- **POST /api/homework/:id/complete** - Toggle personal completion status
 
-### POST /api/homework
-Adds a new homework assignment
-```json
-{
-  "title": "Math Assignment",
-  "subject": "Mathematics",
-  "dueDate": "2024-01-15",
-  "description": "Complete exercises 1-10"
-}
-```
+### Study Links Endpoints
+- **GET /api/study-links** - Returns all study links
+- **POST /api/study-links** - Adds a new study link
+- **DELETE /api/study-links/:id** - Deletes a study link by ID
 
-### DELETE /api/homework/:id
-Deletes a homework assignment by ID
+### Contact Form Endpoints
+- **POST /api/contact** - Submits a contact form (suggestion or issue)
+- **GET /api/contact** - Returns all contact form submissions
 
-### PUT /api/homework/:id
-Updates homework status
-```json
-{
-  "status": "Done"
-}
-```
+### Health Check
+- **GET /health** - Returns API, database, and website status
+
+## 🔗 Discord Webhook Setup
+
+To enable contact form submissions to be sent to Discord:
+
+1. Go to your Discord server settings
+2. Navigate to "Integrations" → "Webhooks"
+3. Create a new webhook for the channel where you want notifications
+4. Copy the webhook URL
+5. Add it to your server environment variables:
+   ```env
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_URL_HERE
+   ```
+
+Contact form submissions will be sent as Discord embeds with:
+- 💡 emoji for homework suggestions
+- 🐛 emoji for issue reports
+- Form details including title, description, submitter, and attachments
 
 ## 🚀 Deployment on Render
 
