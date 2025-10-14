@@ -2,15 +2,40 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const { utcToZonedTime } = require('date-fns-tz');
+const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
+// Discord webhook configuration
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const DISCORD_GUILD_ID = '1426102941970071634';
+const DISCORD_CHANNEL_ID = '1427497933942685818';
+
+// Rate limiting configuration
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs for sensitive endpoints
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(generalLimiter); // Apply general rate limiting to all routes
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/homework-tracker');
@@ -41,6 +66,11 @@ const homeworkSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  creator: {
+    type: String,
+    required: true,
+    trim: true
+  },
   status: {
     type: String,
     enum: ['Not Done', 'Done'],
@@ -57,6 +87,135 @@ const homeworkSchema = new mongoose.Schema({
 });
 
 const Homework = mongoose.model('Homework', homeworkSchema);
+
+// Study Links Schema
+const studyLinkSchema = new mongoose.Schema({
+  url: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    default: ''
+  },
+  addedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const StudyLink = mongoose.model('StudyLink', studyLinkSchema);
+
+// Contact Form Schema
+const contactFormSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['suggestion', 'issue'],
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  attachments: [{
+    filename: String,
+    url: String,
+    mimetype: String
+  }],
+  submittedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'reviewed', 'resolved'],
+    default: 'pending'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const ContactForm = mongoose.model('ContactForm', contactFormSchema);
+
+// Discord webhook function
+async function sendDiscordWebhook(contactForm) {
+  if (!DISCORD_WEBHOOK_URL) {
+    console.log('Discord webhook URL not configured, skipping webhook send');
+    return;
+  }
+
+  try {
+    const isSuggestion = contactForm.type === 'suggestion';
+    const emoji = isSuggestion ? '💡' : '🐛';
+    const color = isSuggestion ? 0x00ff00 : 0xff0000; // Green for suggestions, red for issues
+    
+    const embed = {
+      title: `${emoji} ${contactForm.title}`,
+      description: contactForm.description,
+      color: color,
+      fields: [
+        {
+          name: 'Type',
+          value: isSuggestion ? 'Homework Suggestion' : 'Issue Report',
+          inline: true
+        },
+        {
+          name: 'Submitted By',
+          value: contactForm.submittedBy,
+          inline: true
+        },
+        {
+          name: 'Timestamp',
+          value: new Date(contactForm.createdAt).toLocaleString(),
+          inline: true
+        }
+      ],
+      footer: {
+        text: 'SMS Grade 9 Homework Tracker'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    // Add attachments field if there are any
+    if (contactForm.attachments && contactForm.attachments.length > 0) {
+      embed.fields.push({
+        name: 'Attachments',
+        value: contactForm.attachments.map(att => att.filename).join(', '),
+        inline: false
+      });
+    }
+
+    const webhookData = {
+      content: `New ${isSuggestion ? 'suggestion' : 'issue report'} submitted!`,
+      embeds: [embed]
+    };
+
+    await axios.post(DISCORD_WEBHOOK_URL, webhookData);
+    console.log(`Discord webhook sent for ${contactForm.type}: ${contactForm.title}`);
+  } catch (error) {
+    console.error('Error sending Discord webhook:', error);
+  }
+}
 
 // Function to clean up completed homework after 2 days
 async function cleanupCompletedHomework() {
@@ -113,19 +272,20 @@ app.get('/api/homework', async (req, res) => {
   }
 });
 
-app.post('/api/homework', async (req, res) => {
+app.post('/api/homework', strictLimiter, async (req, res) => {
   try {
-    const { title, subject, dueDate, description } = req.body;
+    const { title, subject, dueDate, description, creator } = req.body;
     
-    if (!title || !subject || !dueDate) {
-      return res.status(400).json({ error: 'Title, subject, and due date are required' });
+    if (!title || !subject || !dueDate || !creator) {
+      return res.status(400).json({ error: 'Title, subject, due date, and creator are required' });
     }
 
     const homework = new Homework({
       title,
       subject,
       dueDate: new Date(dueDate),
-      description: description || ''
+      description: description || '',
+      creator
     });
 
     await homework.save();
@@ -200,6 +360,101 @@ app.post('/api/homework/:id/complete', async (req, res) => {
     
     await homework.save();
     res.json(homework);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Study Links API endpoints
+app.get('/api/study-links', async (req, res) => {
+  try {
+    const studyLinks = await StudyLink.find().sort({ createdAt: -1 });
+    res.json(studyLinks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/study-links', strictLimiter, async (req, res) => {
+  try {
+    const { url, title, description, addedBy } = req.body;
+    
+    if (!url || !title || !addedBy) {
+      return res.status(400).json({ error: 'URL, title, and addedBy are required' });
+    }
+
+    // Basic URL validation
+    try {
+      new URL(url);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    const studyLink = new StudyLink({
+      url,
+      title,
+      description: description || '',
+      addedBy
+    });
+
+    await studyLink.save();
+    res.status(201).json(studyLink);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/study-links/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studyLink = await StudyLink.findByIdAndDelete(id);
+    
+    if (!studyLink) {
+      return res.status(404).json({ error: 'Study link not found' });
+    }
+    
+    res.json({ message: 'Study link deleted successfully', studyLink });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Contact Form API endpoints
+app.post('/api/contact', strictLimiter, async (req, res) => {
+  try {
+    const { type, title, description, attachments, submittedBy } = req.body;
+    
+    if (!type || !title || !description || !submittedBy) {
+      return res.status(400).json({ error: 'Type, title, description, and submittedBy are required' });
+    }
+
+    if (!['suggestion', 'issue'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be either "suggestion" or "issue"' });
+    }
+
+    const contactForm = new ContactForm({
+      type,
+      title,
+      description,
+      attachments: attachments || [],
+      submittedBy
+    });
+
+    await contactForm.save();
+    
+    // Send Discord webhook
+    await sendDiscordWebhook(contactForm);
+    
+    res.status(201).json(contactForm);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/contact', async (req, res) => {
+  try {
+    const contactForms = await ContactForm.find().sort({ createdAt: -1 });
+    res.json(contactForms);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
