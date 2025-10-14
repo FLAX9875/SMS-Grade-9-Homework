@@ -4,13 +4,15 @@ services:
     name: homework-tracker-bot
     env: node
     plan: free
-    buildCommand: cd bot/Website-Bot-Homework-main && npm install
-    startCommand: cd bot/Website-Bot-Homework-main && node index.js
+    buildCommand: cd Website-Bot-Homework/Website-Bot-Homework && npm install
+    startCommand: cd Website-Bot-Homework/Website-Bot-Homework && node index.js
     envVars:
       - key: DISCORD_TOKEN
         sync: false
       - key: API_URL
         value: https://homework-tracker-server.onrender.com
+      - key: WEBSITE_URL
+        value: https://homework-tracker-client.onrender.com
 
   # Express Server Service  
   - type: web
@@ -24,6 +26,8 @@ services:
         sync: false
       - key: PORT
         value: 5000
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
 
   # Next.js Client Service
   - type: web
