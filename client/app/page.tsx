@@ -8,6 +8,7 @@ import { zonedTimeToUtc, utcToZonedTime, format as formatTz } from 'date-fns-tz'
 import HomeworkCard from './components/HomeworkCard'
 import HomeworkModal from './components/HomeworkModal'
 import Header from './components/Header'
+import ContactModal from './components/ContactModal'
 
 interface Homework {
   _id: string
@@ -15,6 +16,7 @@ interface Homework {
   subject: string
   dueDate: string
   description: string
+  creator: string
   status: 'Done' | 'Not Done'
   completedBy: Array<{
     username: string
@@ -23,16 +25,27 @@ interface Homework {
   createdAt: string
 }
 
+interface StudyLink {
+  _id: string
+  url: string
+  title: string
+  description: string
+  addedBy: string
+  createdAt: string
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 const WINNIPEG_TIMEZONE = 'America/Winnipeg'
 
 export default function Home() {
   const [homework, setHomework] = useState<Homework[]>([])
+  const [studyLinks, setStudyLinks] = useState<StudyLink[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false)
   const [username, setUsername] = useState('')
-  const [activeTab, setActiveTab] = useState<'main' | 'done'>('main')
+  const [activeTab, setActiveTab] = useState<'main' | 'done' | 'studying'>('main')
 
   // Get or set username
   useEffect(() => {
@@ -57,11 +70,24 @@ export default function Home() {
     }
   }
 
+  const fetchStudyLinks = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/study-links`)
+      setStudyLinks(response.data)
+    } catch (error) {
+      console.error('Error fetching study links:', error)
+    }
+  }
+
   useEffect(() => {
     fetchHomework()
+    fetchStudyLinks()
     
     // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchHomework, 30000)
+    const interval = setInterval(() => {
+      fetchHomework()
+      fetchStudyLinks()
+    }, 30000)
     
     return () => clearInterval(interval)
   }, [])
@@ -147,7 +173,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-dark-bg">
-      <Header />
+      <Header onContactClick={() => setIsContactModalOpen(true)} />
       
       <main className="container mx-auto px-4 py-8">
         <motion.div
@@ -190,10 +216,66 @@ export default function Home() {
             >
               Done
             </button>
+            <button
+              onClick={() => setActiveTab('studying')}
+              className={`px-6 py-3 rounded-md font-medium transition-all duration-200 ${
+                activeTab === 'studying'
+                  ? 'bg-purple-500 text-white shadow-lg'
+                  : 'text-dark-text-secondary hover:text-white hover:bg-dark-border'
+              }`}
+            >
+              Studying
+            </button>
           </div>
         </motion.div>
 
-        {homework.length === 0 ? (
+        {activeTab === 'studying' ? (
+          // Study Links Tab
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <AnimatePresence>
+              {studyLinks.map((link, index) => (
+                <motion.div
+                  key={link._id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.3, delay: index * 0.1 }}
+                  className="bg-dark-card rounded-lg p-6 border border-dark-border hover:border-purple-400 transition-colors duration-200"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white line-clamp-2">{link.title}</h3>
+                    <span className="text-xs text-dark-text-secondary bg-dark-border px-2 py-1 rounded">
+                      {formatDistanceToNow(new Date(link.createdAt), { addSuffix: true })}
+                    </span>
+                  </div>
+                  
+                  {link.description && (
+                    <p className="text-dark-text-secondary text-sm mb-4 line-clamp-3">
+                      {link.description}
+                    </p>
+                  )}
+                  
+                  <div className="flex items-center justify-between">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-sm font-medium"
+                    >
+                      <span>Visit Link</span>
+                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                    <span className="text-xs text-dark-text-secondary">
+                      by {link.addedBy}
+                    </span>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        ) : homework.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -241,7 +323,21 @@ export default function Home() {
         )}
 
         {/* Show message when no items in current tab */}
-        {homework.length > 0 && homework.filter(item => {
+        {activeTab === 'studying' ? (
+          studyLinks.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-16"
+            >
+              <div className="text-6xl mb-4">📖</div>
+              <h2 className="text-2xl font-semibold text-white mb-2">No study links yet!</h2>
+              <p className="text-dark-text-secondary">
+                Add study resources using the Discord bot command /link
+              </p>
+            </motion.div>
+          )
+        ) : homework.length > 0 && homework.filter(item => {
           const isPersonallyCompleted = item.completedBy.some(completion => completion.username === username)
           if (activeTab === 'main') {
             return !isPersonallyCompleted
@@ -271,7 +367,7 @@ export default function Home() {
       <footer className="mt-16 py-8 border-t border-dark-border">
         <div className="container mx-auto px-4 text-center">
           <p className="text-dark-text-secondary text-sm">
-            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework 
+            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework Tracker
           </p>
         </div>
       </footer>
@@ -287,6 +383,11 @@ export default function Home() {
           />
         )}
       </AnimatePresence>
+
+      <ContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+      />
     </div>
   )
 }
