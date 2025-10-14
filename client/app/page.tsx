@@ -34,7 +34,18 @@ interface StudyLink {
   createdAt: string
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+// Dynamic API URL based on environment
+const getApiUrl = () => {
+  if (typeof window !== 'undefined') {
+    // Client-side: use environment variable or fallback to production
+    return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
+  } else {
+    // Server-side: use environment variable or fallback to production
+    return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
+  }
+}
+
+const API_URL = getApiUrl()
 const WINNIPEG_TIMEZONE = 'America/Winnipeg'
 
 export default function Home() {
@@ -61,10 +72,24 @@ export default function Home() {
 
   const fetchHomework = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/homework`)
+      const response = await axios.get(`${API_URL}/api/homework`, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
       setHomework(response.data)
     } catch (error) {
       console.error('Error fetching homework:', error)
+      // Show user-friendly error message
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+          console.error('Backend server is not running or not reachable')
+        } else if (error.response?.status === 503) {
+          console.error('Backend service temporarily unavailable')
+        }
+      }
+      // Keep existing homework data if available, don't clear it on error
     } finally {
       setLoading(false)
     }
@@ -72,10 +97,24 @@ export default function Home() {
 
   const fetchStudyLinks = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/study-links`)
+      const response = await axios.get(`${API_URL}/api/study-links`, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
       setStudyLinks(response.data)
     } catch (error) {
       console.error('Error fetching study links:', error)
+      // Show user-friendly error message
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+          console.error('Backend server is not running or not reachable')
+        } else if (error.response?.status === 503) {
+          console.error('Backend service temporarily unavailable')
+        }
+      }
+      // Keep existing study links data if available, don't clear it on error
     }
   }
 
@@ -107,7 +146,15 @@ export default function Home() {
       if (!username) return
       
       // Use personal completion API
-      await axios.post(`${API_URL}/api/homework/${id}/complete`, { username })
+      await axios.post(`${API_URL}/api/homework/${id}/complete`, 
+        { username },
+        {
+          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      )
       
       // Update local state to reflect personal completion
       setHomework(prev => prev.map(item => {
@@ -131,6 +178,15 @@ export default function Home() {
       }))
     } catch (error) {
       console.error('Error updating homework status:', error)
+      // Show user-friendly error message
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+          console.error('Backend server is not running or not reachable')
+        } else if (error.response?.status === 503) {
+          console.error('Backend service temporarily unavailable')
+        }
+      }
+      // Could add a toast notification here for better UX
     }
   }
 
