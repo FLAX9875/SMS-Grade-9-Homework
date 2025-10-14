@@ -9,7 +9,18 @@ interface ContactModalProps {
   onClose: () => void
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-1.onrender.com'
+// Dynamic API URL based on environment
+const getApiUrl = () => {
+  if (typeof window !== 'undefined') {
+    // Client-side: use environment variable or fallback to production
+    return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
+  } else {
+    // Server-side: use environment variable or fallback to production
+    return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
+  }
+}
+
+const API_URL = getApiUrl()
 
 export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const [formData, setFormData] = useState({
@@ -56,7 +67,12 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       }
 
       // Submit to API
-      await axios.post(`${API_URL}/api/contact`, submitData)
+      await axios.post(`${API_URL}/api/contact`, submitData, {
+        timeout: 15000, // 15 second timeout for file uploads
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
 
       setSubmitStatus('success')
       
@@ -77,6 +93,16 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
 
     } catch (error) {
       console.error('Error submitting contact form:', error)
+      // Show user-friendly error message
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+          console.error('Backend server is not running or not reachable')
+        } else if (error.response?.status === 503) {
+          console.error('Backend service temporarily unavailable')
+        } else if (error.response?.status === 429) {
+          console.error('Rate limit exceeded, please try again later')
+        }
+      }
       setSubmitStatus('error')
     } finally {
       setIsSubmitting(false)
