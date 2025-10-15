@@ -17,11 +17,21 @@ export default function Header({ onContactClick }: HeaderProps) {
     >
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Homework Tracker</h1>
-            <p className="text-dark-text-secondary mt-1">
-              Stay organized with your assignments
-            </p>
+          <div className="flex items-center">
+            <div className="flex items-center">
+              {/* SMS Logo */}
+              <img 
+                src="/sms_logo.svg" 
+                alt="SMS Logo" 
+                className="w-12 h-12 mr-4"
+              />
+              <div>
+                <h1 className="text-3xl font-bold text-white">Homework Tracker</h1>
+                <p className="text-dark-text-secondary mt-1">
+                  Stay organized with your assignments
+                </p>
+              </div>
+            </div>
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
