@@ -32,6 +32,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const [files, setFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [submitAttempts, setSubmitAttempts] = useState(0)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
@@ -46,8 +47,13 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Prevent multiple submissions
+    if (isSubmitting) return
+    
     setIsSubmitting(true)
     setSubmitStatus('idle')
+    setSubmitAttempts(prev => prev + 1)
 
     try {
       // Get username from localStorage
@@ -66,13 +72,30 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
         }))
       }
 
-      // Submit to API
-      await axios.post(`${API_URL}/api/contact`, submitData, {
-        timeout: 15000, // 15 second timeout for file uploads
-        headers: {
-          'Content-Type': 'application/json',
+      // Submit to API with retry logic
+      let retryCount = 0
+      const maxRetries = 2
+      
+      while (retryCount <= maxRetries) {
+        try {
+          await axios.post(`${API_URL}/api/contact`, submitData, {
+            timeout: 15000, // 15 second timeout for file uploads
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          })
+          break // Success, exit retry loop
+        } catch (error) {
+          if (axios.isAxiosError(error) && error.response?.status === 429 && retryCount < maxRetries) {
+            // Rate limited, wait and retry
+            const waitTime = Math.pow(2, retryCount) * 1000 // Exponential backoff
+            await new Promise(resolve => setTimeout(resolve, waitTime))
+            retryCount++
+            continue
+          }
+          throw error // Re-throw if not rate limit or max retries reached
         }
-      })
+      }
 
       setSubmitStatus('success')
       
@@ -84,6 +107,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
         submittedBy: ''
       })
       setFiles([])
+      setSubmitAttempts(0)
 
       // Auto-close after 2 seconds
       setTimeout(() => {
@@ -104,6 +128,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
         }
       }
       setSubmitStatus('error')
+      setSubmitAttempts(0)
     } finally {
       setIsSubmitting(false)
     }
@@ -260,7 +285,10 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
                       className="p-3 bg-red-500/20 border border-red-500/50 rounded-md"
                     >
                       <p className="text-red-400 text-sm">
-                        Failed to submit. Please try again later.
+                        {submitAttempts > 1 
+                          ? 'Rate limit exceeded. Please wait a minute before trying again.'
+                          : 'Failed to submit. Please try again later.'
+                        }
                       </p>
                     </motion.div>
                   )}
