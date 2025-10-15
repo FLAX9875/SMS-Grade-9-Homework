@@ -8,6 +8,8 @@ const cors = require('cors');
 const { utcToZonedTime } = require('date-fns-tz');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -21,17 +23,17 @@ const DISCORD_CHANNEL_ID = '1427497933942685818';
 
 // Rate limiting configuration
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: 10 * 1000, // 10 seconds
+  max: 20, // limit each IP to 20 requests per 10 seconds
+  message: { error: 'Too many requests. Try again shortly.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs for sensitive endpoints
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // limit each IP to 10 requests per minute for sensitive endpoints
+  message: { error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -39,16 +41,56 @@ const strictLimiter = rateLimit({
 // More lenient rate limiter for contact form
 const contactLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 3, // limit each IP to 3 requests per minute for contact form
-  message: 'Too many contact form submissions. Please wait a minute before trying again.',
+  max: 5, // limit each IP to 5 requests per minute for contact form
+  message: { error: 'Too many contact form submissions. Please wait a minute before trying again.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://sms-grade-9-homework.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 app.use(express.json());
+app.use(express.static('uploads')); // Serve uploaded files
 app.use(generalLimiter); // Apply general rate limiting to all routes
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow images and common document types
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only images and documents are allowed'));
+    }
+  }
+});
 
 // MongoDB connection
 // Connect to MongoDB with error handling so the process doesn't crash if DB is down
@@ -231,6 +273,17 @@ async function sendDiscordWebhook(contactForm) {
         value: contactForm.attachments.map(att => att.filename).join(', '),
         inline: false
       });
+
+      // If there are image attachments, add the first image to the embed
+      const imageAttachment = contactForm.attachments.find(att => 
+        att.mimetype && att.mimetype.startsWith('image/')
+      );
+      
+      if (imageAttachment && imageAttachment.url && !imageAttachment.url.startsWith('placeholder-')) {
+        embed.image = {
+          url: imageAttachment.url
+        };
+      }
     }
 
     const webhookData = {
@@ -381,7 +434,7 @@ app.put('/api/homework/:id', async (req, res) => {
 });
 
 // Personal completion route
-app.post('/api/homework/:id/complete', async (req, res) => {
+app.patch('/api/homework/:id/complete', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.body;
@@ -408,9 +461,10 @@ app.post('/api/homework/:id/complete', async (req, res) => {
     }
     
     await homework.save();
-    res.json(homework);
+    res.json({ success: true, homework });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error marking homework complete:', error);
+    res.status(500).json({ error: 'Server error updating homework' });
   }
 });
 
@@ -470,6 +524,27 @@ app.delete('/api/study-links/:id', async (req, res) => {
     res.json({ message: 'Study link deleted successfully', studyLink });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// File upload endpoint
+app.post('/api/upload', upload.array('files', 5), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const uploadedFiles = req.files.map(file => ({
+      filename: file.originalname,
+      url: `${req.protocol}://${req.get('host')}/${file.filename}`,
+      mimetype: file.mimetype,
+      size: file.size
+    }));
+
+    res.json({ success: true, files: uploadedFiles });
+  } catch (error) {
+    console.error('Error uploading files:', error);
+    res.status(500).json({ error: 'Failed to upload files' });
   }
 });
 
@@ -555,3 +630,8 @@ app.get('/health', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Keep-alive ping to prevent Render from sleeping
+setInterval(() => {
+  console.log('Keep-alive ping - server is running');
+}, 5 * 60 * 1000); // Every 5 minutes
