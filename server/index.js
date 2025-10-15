@@ -36,18 +36,42 @@ const strictLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// More lenient rate limiter for contact form
+const contactLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 3, // limit each IP to 3 requests per minute for contact form
+  message: 'Too many contact form submissions. Please wait a minute before trying again.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(generalLimiter); // Apply general rate limiting to all routes
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/homework-tracker');
+// Connect to MongoDB with error handling so the process doesn't crash if DB is down
+let dbConnected = false;
+mongoose
+  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/homework-tracker')
+  .then(() => {
+    dbConnected = true;
+    console.log('Connected to MongoDB');
+  })
+  .catch((err) => {
+    dbConnected = false;
+    console.error('MongoDB connection error (will continue running without DB):', err && err.message ? err.message : err);
+  });
 
 const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.on('error', (err) => {
+  dbConnected = false;
+  console.error('MongoDB connection error:', err && err.message ? err.message : err);
+});
 db.once('open', () => {
-  console.log('Connected to MongoDB');
+  dbConnected = true;
+  console.log('MongoDB connection opened');
 });
 
 // Homework Schema
@@ -224,6 +248,12 @@ async function sendDiscordWebhook(contactForm) {
 // Function to clean up completed homework after 2 days
 async function cleanupCompletedHomework() {
   try {
+    // If DB isn't connected, skip cleanup to avoid unhandled errors
+    if (!dbConnected || mongoose.connection.readyState !== 1) {
+      // Not connected: skip cleanup run
+      // console.log('Skipping cleanup - DB not connected');
+      return;
+    }
     const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE);
     const twoDaysAgo = new Date(nowWinnipeg);
     twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
@@ -266,9 +296,24 @@ setInterval(cleanupCompletedHomework, 60 * 60 * 1000);
 // Run initial cleanup on server start
 setTimeout(cleanupCompletedHomework, 5000); // Wait 5 seconds after server start
 
+// Middleware to short-circuit requests if DB isn't connected (except health check)
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!dbConnected || mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Service temporarily unavailable - database not connected' });
+  }
+  return next();
+});
+
 // Routes
 app.get('/api/homework', async (req, res) => {
   try {
+    if (!dbConnected) {
+      // DB is not connected; return empty list to keep frontend usable
+      console.warn('GET /api/homework requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
     const homework = await Homework.find().sort({ dueDate: 1 });
     res.json(homework);
   } catch (error) {
@@ -372,6 +417,11 @@ app.post('/api/homework/:id/complete', async (req, res) => {
 // Study Links API endpoints
 app.get('/api/study-links', async (req, res) => {
   try {
+    if (!dbConnected) {
+      console.warn('GET /api/study-links requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
     const studyLinks = await StudyLink.find().sort({ createdAt: -1 });
     res.json(studyLinks);
   } catch (error) {
@@ -424,7 +474,7 @@ app.delete('/api/study-links/:id', async (req, res) => {
 });
 
 // Contact Form API endpoints
-app.post('/api/contact', strictLimiter, async (req, res) => {
+app.post('/api/contact', contactLimiter, async (req, res) => {
   try {
     const { type, title, description, attachments, submittedBy } = req.body;
     
@@ -457,6 +507,11 @@ app.post('/api/contact', strictLimiter, async (req, res) => {
 
 app.get('/api/contact', async (req, res) => {
   try {
+    if (!dbConnected) {
+      console.warn('GET /api/contact requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
     const contactForms = await ContactForm.find().sort({ createdAt: -1 });
     res.json(contactForms);
   } catch (error) {
