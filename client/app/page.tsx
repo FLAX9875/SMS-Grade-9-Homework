@@ -133,11 +133,11 @@ export default function Home() {
     fetchHomework()
     fetchStudyLinks()
     
-    // Auto-refresh every 30 seconds
+    // Auto-refresh every 60 seconds to reduce server load
     const interval = setInterval(() => {
       fetchHomework()
       fetchStudyLinks()
-    }, 30000)
+    }, 60000)
     
     return () => clearInterval(interval)
   }, [])
@@ -166,16 +166,30 @@ export default function Home() {
     try {
       if (!username) return
       
-      // Use personal completion API
-      await axios.patch(`${API_URL}/api/homework/${id}/complete`, 
-        { username },
-        {
-          timeout: 10000,
-          headers: {
-            'Content-Type': 'application/json',
+      // Use personal completion API (try PATCH first, then POST as fallback)
+      try {
+        await axios.patch(`${API_URL}/api/homework/${id}/complete`, 
+          { username },
+          {
+            timeout: 10000,
+            headers: {
+              'Content-Type': 'application/json',
+            }
           }
-        }
-      )
+        )
+      } catch (patchError) {
+        // Fallback to POST if PATCH fails
+        console.log('PATCH failed, trying POST fallback...')
+        await axios.post(`${API_URL}/api/homework/${id}/complete`, 
+          { username },
+          {
+            timeout: 10000,
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          }
+        )
+      }
       
       // Update local state to reflect personal completion
       setHomework(prev => prev.map(item => {
