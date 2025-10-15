@@ -57,6 +57,7 @@ export default function Home() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false)
   const [username, setUsername] = useState('')
   const [activeTab, setActiveTab] = useState<'main' | 'done' | 'studying'>('main')
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   // Get or set username
   useEffect(() => {
@@ -131,6 +132,16 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [])
 
+  // Auto-hide toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null)
+      }, 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
+
   const handleCardClick = (homework: Homework) => {
     setSelectedHomework(homework)
     setIsModalOpen(true)
@@ -162,12 +173,14 @@ export default function Home() {
           const isCompleted = item.completedBy.some(completion => completion.username === username)
           if (isCompleted) {
             // Remove from personal completion
+            setToast({ message: '✅ Homework marked as not done!', type: 'success' })
             return {
               ...item,
               completedBy: item.completedBy.filter(completion => completion.username !== username)
             }
           } else {
             // Add to personal completion
+            setToast({ message: '✅ Homework marked as done!', type: 'success' })
             return {
               ...item,
               completedBy: [...item.completedBy, { username, completedAt: new Date().toISOString() }]
@@ -186,7 +199,7 @@ export default function Home() {
           console.error('Backend service temporarily unavailable')
         }
       }
-      // Could add a toast notification here for better UX
+      setToast({ message: '❌ Failed to update homework status', type: 'error' })
     }
   }
 
@@ -371,6 +384,8 @@ export default function Home() {
                     onStatusToggle={() => handleStatusToggle(item._id, getPersonalStatus(item))}
                     getStatusColor={getStatusColor}
                     getUrgencyColor={getUrgencyColor}
+                    getPersonalStatus={getPersonalStatus}
+                    username={username}
                   />
                 </motion.div>
               ))}
@@ -444,6 +459,26 @@ export default function Home() {
         isOpen={isContactModalOpen}
         onClose={() => setIsContactModalOpen(false)}
       />
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className="fixed bottom-4 right-4 z-50"
+          >
+            <div className={`px-6 py-3 rounded-lg shadow-lg border ${
+              toast.type === 'success' 
+                ? 'bg-green-500/90 text-white border-green-400' 
+                : 'bg-red-500/90 text-white border-red-400'
+            }`}>
+              <p className="font-medium">{toast.message}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
