@@ -21,18 +21,22 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const DISCORD_GUILD_ID = '1426102941970071634';
 const DISCORD_CHANNEL_ID = '1427497933942685818';
 
-// Rate limiting configuration
+// Rate limiting configuration - more lenient for better user experience
 const generalLimiter = rateLimit({
-  windowMs: 10 * 1000, // 10 seconds
-  max: 20, // limit each IP to 20 requests per 10 seconds
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per 15 minutes
   message: { error: 'Too many requests. Try again shortly.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
 });
 
 const strictLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // limit each IP to 10 requests per minute for sensitive endpoints
+  max: 20, // limit each IP to 20 requests per minute for sensitive endpoints
   message: { error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -41,7 +45,7 @@ const strictLimiter = rateLimit({
 // More lenient rate limiter for contact form
 const contactLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // limit each IP to 5 requests per minute for contact form
+  max: 10, // limit each IP to 10 requests per minute for contact form
   message: { error: 'Too many contact form submissions. Please wait a minute before trying again.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -56,8 +60,16 @@ app.use(cors({
   ],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
+
+// Add wildcard fallback for development
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
 app.use(express.json());
 app.use(express.static('uploads')); // Serve uploaded files
 app.use(generalLimiter); // Apply general rate limiting to all routes
@@ -243,6 +255,9 @@ async function sendDiscordWebhook(contactForm) {
       title: `${emoji} ${contactForm.title}`,
       description: contactForm.description,
       color: color,
+      thumbnail: {
+        url: 'https://sms-grade-9-homework.onrender.com/sms_logo.svg'
+      },
       fields: [
         {
           name: 'Type',
@@ -261,7 +276,8 @@ async function sendDiscordWebhook(contactForm) {
         }
       ],
       footer: {
-        text: 'SMS Grade 9 Homework Tracker'
+        text: 'SMS Grade 9 Homework Tracker',
+        icon_url: 'https://sms-grade-9-homework.onrender.com/sms_logo.svg'
       },
       timestamp: new Date().toISOString()
     };
@@ -283,6 +299,12 @@ async function sendDiscordWebhook(contactForm) {
         embed.image = {
           url: imageAttachment.url
         };
+        // Also add it as a field for better visibility
+        embed.fields.push({
+          name: '📎 Image Attachment',
+          value: `[View Image](${imageAttachment.url})`,
+          inline: false
+        });
       }
     }
 
@@ -433,8 +455,43 @@ app.put('/api/homework/:id', async (req, res) => {
   }
 });
 
-// Personal completion route
+// Personal completion route (PATCH - preferred)
 app.patch('/api/homework/:id/complete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const homework = await Homework.findById(id);
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    // Check if user already completed this homework
+    const alreadyCompleted = homework.completedBy.some(completion => completion.username === username);
+    
+    if (alreadyCompleted) {
+      // Remove completion
+      homework.completedBy = homework.completedBy.filter(completion => completion.username !== username);
+    } else {
+      // Add completion
+      homework.completedBy.push({ username, completedAt: new Date() });
+    }
+    
+    await homework.save();
+    res.json({ success: true, homework });
+  } catch (error) {
+    console.error('Error marking homework complete:', error);
+    res.status(500).json({ error: 'Server error updating homework' });
+  }
+});
+
+// Personal completion route (POST - fallback)
+app.post('/api/homework/:id/complete', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.body;
