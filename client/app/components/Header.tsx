@@ -43,7 +43,7 @@ export default function Header({ onContactClick }: HeaderProps) {
             </button>
             <div className="text-right">
               <p className="text-sm text-dark-text-secondary">Auto-refresh</p>
-              <p className="text-xs text-gray-500">Every 30 seconds</p>
+              <p className="text-xs text-gray-500">Every 60 seconds</p>
             </div>
             <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
           </div>
