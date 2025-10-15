@@ -25,6 +25,8 @@ interface HomeworkCardProps {
   onStatusToggle: () => void
   getStatusColor: (homework: Homework) => string
   getUrgencyColor: (dueDate: string) => string
+  getPersonalStatus: (homework: Homework) => string
+  username: string
 }
 
 export default function HomeworkCard({
@@ -32,13 +34,16 @@ export default function HomeworkCard({
   onClick,
   onStatusToggle,
   getStatusColor,
-  getUrgencyColor
+  getUrgencyColor,
+  getPersonalStatus,
+  username
 }: HomeworkCardProps) {
   const WINNIPEG_TIMEZONE = 'America/Winnipeg'
   const dueDate = new Date(homework.dueDate)
   const dueDateWinnipeg = utcToZonedTime(dueDate, WINNIPEG_TIMEZONE)
   const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE)
   const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.status === 'Not Done'
+  const isPersonallyCompleted = homework.completedBy.some(completion => completion.username === username)
   
   return (
     <motion.div
@@ -66,7 +71,7 @@ export default function HomeworkCard({
             onStatusToggle()
           }}
           className={`p-2 rounded-full transition-colors ${
-            homework.completedBy.length > 0
+            isPersonallyCompleted
               ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
               : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
           }`}
@@ -85,7 +90,7 @@ export default function HomeworkCard({
         
         <div className="flex items-center justify-between">
           <span className={`text-sm font-medium ${getStatusColor(homework)}`}>
-            {homework.completedBy.length > 0 ? 'Done' : 'Not Done'}
+            {getPersonalStatus(homework)}
           </span>
           <span className="text-xs text-gray-500">
             {format(dueDateWinnipeg, 'MMM dd, yyyy')}
