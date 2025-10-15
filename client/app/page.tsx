@@ -48,6 +48,16 @@ const getApiUrl = () => {
 const API_URL = getApiUrl()
 const WINNIPEG_TIMEZONE = 'America/Winnipeg'
 
+// Add retry logic for rate limiting
+axios.interceptors.response.use(null, async (error) => {
+  if (error.response?.status === 429) {
+    console.log('Rate limited, retrying in 2 seconds...')
+    await new Promise(res => setTimeout(res, 2000))
+    return axios.request(error.config)
+  }
+  return Promise.reject(error)
+})
+
 export default function Home() {
   const [homework, setHomework] = useState<Homework[]>([])
   const [studyLinks, setStudyLinks] = useState<StudyLink[]>([])
@@ -157,7 +167,7 @@ export default function Home() {
       if (!username) return
       
       // Use personal completion API
-      await axios.post(`${API_URL}/api/homework/${id}/complete`, 
+      await axios.patch(`${API_URL}/api/homework/${id}/complete`, 
         { username },
         {
           timeout: 10000,
