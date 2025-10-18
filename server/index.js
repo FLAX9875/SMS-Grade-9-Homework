@@ -1,946 +1,694 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const axios = require('axios');
+// SERVER FILE - Express.js Backend for Homework Tracker
+// This file should NOT import discord.js
+console.log('Starting Homework Tracker Server...');
+
 const express = require('express');
-const { zonedTimeToUtc, utcToZonedTime, format } = require('date-fns-tz');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const { utcToZonedTime } = require('date-fns-tz');
+const axios = require('axios');
+const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-  ],
-});
-
-const API_URL = process.env.API_URL || 'https://sms-grade-9-homework-server.onrender.com';
-const WEBSITE_URL = process.env.WEBSITE_URL || 'https://sms-grade-9-homework.onrender.com';
+const PORT = process.env.PORT || 5000;
 const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
-// Simple rate limiting for Discord commands
-const userCooldowns = new Map();
-const COOLDOWN_TIME = 30000; // 30 seconds
+// Discord webhook configuration
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const DISCORD_GUILD_ID = '1426102941970071634';
+const DISCORD_CHANNEL_ID = '1427497933942685818';
 
-function checkCooldown(userId, command) {
-  const key = `${userId}-${command}`;
-  const now = Date.now();
-  
-  if (userCooldowns.has(key)) {
-    const lastUsed = userCooldowns.get(key);
-    if (now - lastUsed < COOLDOWN_TIME) {
-      return false; // Still in cooldown
+// Rate limiting configuration - more lenient for better user experience
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per 15 minutes
+  message: { error: 'Too many requests. Try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20, // limit each IP to 20 requests per minute for sensitive endpoints
+  message: { error: 'Too many requests from this IP, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// More lenient rate limiter for contact form
+const contactLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // limit each IP to 10 requests per minute for contact form
+  message: { error: 'Too many contact form submissions. Please wait a minute before trying again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Middleware
+app.use(cors({
+  origin: [
+    'https://sms-grade-9-homework.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+}));
+
+// Add wildcard fallback for development
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
+app.use(express.json());
+app.use(express.static('uploads')); // Serve uploaded files
+app.use(generalLimiter); // Apply general rate limiting to all routes
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow images and common document types
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only images and documents are allowed'));
     }
   }
-  
-  userCooldowns.set(key, now);
-  return true; // Not in cooldown
+});
+
+// MongoDB connection
+// Connect to MongoDB with error handling so the process doesn't crash if DB is down
+let dbConnected = false;
+mongoose
+  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/homework-tracker')
+  .then(() => {
+    dbConnected = true;
+    console.log('Connected to MongoDB');
+  })
+  .catch((err) => {
+    dbConnected = false;
+    console.error('MongoDB connection error (will continue running without DB):', err && err.message ? err.message : err);
+  });
+
+const db = mongoose.connection;
+db.on('error', (err) => {
+  dbConnected = false;
+  console.error('MongoDB connection error:', err && err.message ? err.message : err);
+});
+db.once('open', () => {
+  dbConnected = true;
+  console.log('MongoDB connection opened');
+});
+
+// Homework Schema
+const homeworkSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  subject: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  dueDate: {
+    type: Date,
+    required: true
+  },
+  description: {
+    type: String,
+    default: ''
+  },
+  creator: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['Not Done', 'Done'],
+    default: 'Not Done'
+  },
+  completedBy: [{
+    username: String,
+    completedAt: { type: Date, default: Date.now }
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Homework = mongoose.model('Homework', homeworkSchema);
+
+// Study Links Schema
+const studyLinkSchema = new mongoose.Schema({
+  url: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    default: ''
+  },
+  addedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const StudyLink = mongoose.model('StudyLink', studyLinkSchema);
+
+// Contact Form Schema
+const contactFormSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['suggestion', 'issue'],
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  attachments: [{
+    filename: String,
+    url: String,
+    mimetype: String
+  }],
+  submittedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'reviewed', 'resolved'],
+    default: 'pending'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const ContactForm = mongoose.model('ContactForm', contactFormSchema);
+
+// Discord webhook function
+async function sendDiscordWebhook(contactForm) {
+  if (!DISCORD_WEBHOOK_URL) {
+    console.log('Discord webhook URL not configured, skipping webhook send');
+    return;
+  }
+
+  try {
+    const isSuggestion = contactForm.type === 'suggestion';
+    const emoji = isSuggestion ? '💡' : '🐛';
+    const color = isSuggestion ? 0x00ff00 : 0xff0000; // Green for suggestions, red for issues
+    
+    const embed = {
+      title: `${emoji} ${contactForm.title}`,
+      description: contactForm.description,
+      color: color,
+      thumbnail: {
+        url: 'https://sms-grade-9-homework.onrender.com/sms_logo.svg'
+      },
+      fields: [
+        {
+          name: 'Type',
+          value: isSuggestion ? 'Homework Suggestion' : 'Issue Report',
+          inline: true
+        },
+        {
+          name: 'Submitted By',
+          value: contactForm.submittedBy,
+          inline: true
+        },
+        {
+          name: 'Timestamp',
+          value: new Date(contactForm.createdAt).toLocaleString(),
+          inline: true
+        }
+      ],
+      footer: {
+        text: 'SMS Grade 9 Homework Tracker',
+        icon_url: 'https://sms-grade-9-homework.onrender.com/sms_logo.svg'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    // Add attachments field if there are any
+    if (contactForm.attachments && contactForm.attachments.length > 0) {
+      embed.fields.push({
+        name: 'Attachments',
+        value: contactForm.attachments.map(att => att.filename).join(', '),
+        inline: false
+      });
+
+      // If there are image attachments, add the first image to the embed
+      const imageAttachment = contactForm.attachments.find(att => 
+        att.mimetype && att.mimetype.startsWith('image/')
+      );
+      
+      if (imageAttachment && imageAttachment.url && !imageAttachment.url.startsWith('placeholder-')) {
+        embed.image = {
+          url: imageAttachment.url
+        };
+        // Also add it as a field for better visibility
+        embed.fields.push({
+          name: '📎 Image Attachment',
+          value: `[View Image](${imageAttachment.url})`,
+          inline: false
+        });
+      }
+    }
+
+    const webhookData = {
+      content: `New ${isSuggestion ? 'suggestion' : 'issue report'} submitted!`,
+      embeds: [embed]
+    };
+
+    await axios.post(DISCORD_WEBHOOK_URL, webhookData);
+    console.log(`Discord webhook sent for ${contactForm.type}: ${contactForm.title}`);
+  } catch (error) {
+    console.error('Error sending Discord webhook:', error);
+  }
 }
 
-// Slash Commands
-const commands = [
-  new SlashCommandBuilder()
-    .setName('addhomework')
-    .setDescription('Add a new SMS Grade 9 homework assignment')
-    .addStringOption(option =>
-      option
-        .setName('title')
-        .setDescription('The title of the homework')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('subject')
-        .setDescription('The subject or class name')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('duedate')
-        .setDescription('Due date in YYYY-MM-DD format')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('creator')
-        .setDescription('Your name (creator of this homework)')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('duetime')
-        .setDescription('Due time in HH:MM format (24-hour, Winnipeg time)')
-        .setRequired(false)
-    )
-    .addStringOption(option =>
-      option
-        .setName('description')
-        .setDescription('Optional description of the homework')
-        .setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('removehomework')
-    .setDescription('Remove a SMS Grade 9 homework assignment')
-    .addStringOption(option =>
-      option
-        .setName('title')
-        .setDescription('The title of the homework to remove')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('listhomework')
-    .setDescription('List all SMS Grade 9 homework assignments')
-    .addStringOption(option =>
-      option
-        .setName('status')
-        .setDescription('Filter by status')
-        .setRequired(false)
-        .addChoices(
-          { name: 'All', value: 'all' },
-          { name: 'Done', value: 'Done' },
-          { name: 'Not Done', value: 'Not Done' }
-        )
-    ),
-
-  new SlashCommandBuilder()
-    .setName('database')
-    .setDescription('View completion status for all users'),
-
-  new SlashCommandBuilder()
-    .setName('linkshow')
-    .setDescription('List all study resource links (with IDs)'),
-
-  new SlashCommandBuilder()
-    .setName('showwebsite')
-    .setDescription('Show website/API/DB status with overall rating'),
-
-  new SlashCommandBuilder()
-    .setName('editprompt')
-    .setDescription('Edit an existing homework assignment (Admin only)')
-    .addStringOption(option =>
-      option
-        .setName('homework_id')
-        .setDescription('The ID of the homework to edit (if omitted, bot will list available homework IDs)')
-        .setRequired(false)
-    )
-    .addStringOption(option =>
-      option
-        .setName('field')
-        .setDescription('The field to edit')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Title', value: 'title' },
-          { name: 'Subject', value: 'subject' },
-          { name: 'Description', value: 'description' },
-          { name: 'Due Date', value: 'dueDate' }
-        )
-    )
-    .addStringOption(option =>
-      option
-        .setName('new_value')
-        .setDescription('The new value for the field')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('link')
-    .setDescription('Add a study resource link')
-    .addStringOption(option =>
-      option
-        .setName('url')
-        .setDescription('The URL of the study resource')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('title')
-        .setDescription('Title for the study resource')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('description')
-        .setDescription('Optional description of the resource')
-        .setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('deletelink')
-    .setDescription('Delete a study resource link')
-    .addStringOption(option =>
-      option
-        .setName('link_id')
-        .setDescription('The ID of the link to delete')
-        .setRequired(true)
-    )
-];
-
-// Register slash commands
-client.once('clientReady', async () => {
-  console.log(`Logged in as ${client.user.tag}!`);
-  
+// Function to clean up completed homework after 2 days
+async function cleanupCompletedHomework() {
   try {
-    console.log('Started refreshing application (/) commands.');
-    await client.application.commands.set(commands);
-    console.log('Successfully reloaded application (/) commands.');
-  } catch (error) {
-    console.error('Error refreshing application commands:', error);
-  }
-});
-
-// Handle slash command interactions
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  const { commandName } = interaction;
-
-  try {
-    if (commandName === 'addhomework') {
-      await handleAddHomework(interaction);
-    } else if (commandName === 'removehomework') {
-      await handleRemoveHomework(interaction);
-    } else if (commandName === 'listhomework') {
-      await handleListHomework(interaction);
-    } else if (commandName === 'linkshow') {
-      await handleLinkShow(interaction);
-    } else if (commandName === 'database') {
-      await handleDatabase(interaction);
-    } else if (commandName === 'showwebsite') {
-      await handleShowWebsite(interaction);
-    } else if (commandName === 'editprompt') {
-      await handleEditPrompt(interaction);
-    } else if (commandName === 'link') {
-      await handleLink(interaction);
-    } else if (commandName === 'deletelink') {
-      await handleDeleteLink(interaction);
+    // If DB isn't connected, skip cleanup to avoid unhandled errors
+    if (!dbConnected || mongoose.connection.readyState !== 1) {
+      // Not connected: skip cleanup run
+      // console.log('Skipping cleanup - DB not connected');
+      return;
     }
-  } catch (error) {
-    console.error('Error handling interaction:', error);
+    const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE);
+    const twoDaysAgo = new Date(nowWinnipeg);
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
     
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Error')
-      .setDescription('An error occurred while processing your request. Please try again later.')
-      .setTimestamp();
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
-    } else {
-      await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    // Find homework that has been completed by someone and the completion was more than 2 days ago
+    const homeworkToDelete = await Homework.find({
+      'completedBy.0': { $exists: true }, // Has at least one completion
+      'completedBy.completedAt': { $lt: twoDaysAgo }
+    });
+    
+    if (homeworkToDelete.length > 0) {
+      console.log(`Cleaning up ${homeworkToDelete.length} completed homework items older than 2 days`);
+      
+      // Delete homework where all completions are older than 2 days
+      for (const homework of homeworkToDelete) {
+        const recentCompletions = homework.completedBy.filter(completion => 
+          new Date(completion.completedAt) > twoDaysAgo
+        );
+        
+        if (recentCompletions.length === 0) {
+          // All completions are older than 2 days, delete the homework
+          await Homework.findByIdAndDelete(homework._id);
+          console.log(`Deleted homework: ${homework.title}`);
+        } else {
+          // Some completions are recent, keep the homework but remove old completions
+          homework.completedBy = recentCompletions;
+          await homework.save();
+          console.log(`Updated homework: ${homework.title} - removed old completions`);
+        }
+      }
     }
+  } catch (error) {
+    console.error('Error cleaning up completed homework:', error);
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupCompletedHomework, 60 * 60 * 1000);
+
+// Run initial cleanup on server start
+setTimeout(cleanupCompletedHomework, 5000); // Wait 5 seconds after server start
+
+// Middleware to short-circuit requests if DB isn't connected (except health check)
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!dbConnected || mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Service temporarily unavailable - database not connected' });
+  }
+  return next();
+});
+
+// Routes
+app.get('/api/homework', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      // DB is not connected; return empty list to keep frontend usable
+      console.warn('GET /api/homework requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
+    const homework = await Homework.find().sort({ dueDate: 1 });
+    res.json(homework);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-async function handleAddHomework(interaction) {
-  // Check rate limiting
-  if (!checkCooldown(interaction.user.id, 'addhomework')) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('⏰ Rate Limited')
-      .setDescription('Please wait 30 seconds before using this command again.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
-  const title = interaction.options.getString('title');
-  const subject = interaction.options.getString('subject');
-  const dueDate = interaction.options.getString('duedate');
-  const dueTime = interaction.options.getString('duetime') || '23:59'; // Default to end of day
-  const description = interaction.options.getString('description') || '';
-  const creator = interaction.options.getString('creator');
-
-  // Validate date format
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(dueDate)) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Invalid Date Format')
-      .setDescription('Please use the format YYYY-MM-DD for the due date.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
-  // Validate time format
-  const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-  if (!timeRegex.test(dueTime)) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Invalid Time Format')
-      .setDescription('Please use the format HH:MM for the due time (24-hour format).')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
-  // Create due date with time in Winnipeg timezone
-  const [hours, minutes] = dueTime.split(':').map(Number);
-  const dueDateWinnipeg = new Date(dueDate);
-  dueDateWinnipeg.setHours(hours, minutes, 0, 0);
-  
-  // Convert Winnipeg time to UTC for storage
-  const dueDateUTC = zonedTimeToUtc(dueDateWinnipeg, WINNIPEG_TIMEZONE);
-  
-  // Validate that the date is not in the past (using Winnipeg time)
-  const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE);
-  const todayWinnipeg = new Date(nowWinnipeg);
-  todayWinnipeg.setHours(0, 0, 0, 0);
-  
-  if (dueDateWinnipeg < todayWinnipeg) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Invalid Date')
-      .setDescription('Due date cannot be in the past.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
+app.post('/api/homework', strictLimiter, async (req, res) => {
   try {
-    const response = await axios.post(`${API_URL}/api/homework`, {
+    const { title, subject, dueDate, description, creator } = req.body;
+    
+    if (!title || !subject || !dueDate || !creator) {
+      return res.status(400).json({ error: 'Title, subject, due date, and creator are required' });
+    }
+
+    const homework = new Homework({
       title,
       subject,
-      dueDate: dueDateUTC.toISOString(),
-      description,
+      dueDate: new Date(dueDate),
+      description: description || '',
       creator
     });
 
-    const homework = response.data;
-    const dueDateFormatted = format(dueDateWinnipeg, 'EEEE, MMMM do, yyyy \'at\' h:mm a', { timeZone: WINNIPEG_TIMEZONE });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor('#00ff00')
-      .setTitle('✅ SMS Grade 9 Homework Added Successfully')
-      .setDescription(`**${homework.title}** has been added to your SMS Grade 9 homework tracker.`)
-      .addFields(
-          { name: '📚 Subject', value: homework.subject, inline: true },
-        { name: '📅 Due Date', value: dueDateFormatted, inline: true },
-        { name: '👤 Creator', value: homework.creator, inline: true },
-          { name: '📝 Status', value: homework.status, inline: true },
-          { name: '🆔 ID', value: homework.uid || homework._id || 'N/A', inline: true }
-      )
-      .setTimestamp();
-
-    if (description) {
-      successEmbed.addFields({ name: '📄 Description', value: description, inline: false });
-    }
-
-    await interaction.reply({ embeds: [successEmbed] });
+    await homework.save();
+    res.status(201).json(homework);
   } catch (error) {
-    console.error('Error adding homework:', error);
-    
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Add Homework')
-      .setDescription('Could not add homework to the tracker. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    res.status(500).json({ error: error.message });
   }
-}
+});
 
-async function handleRemoveHomework(interaction) {
-  const title = interaction.options.getString('title');
-
+app.delete('/api/homework/:id', async (req, res) => {
   try {
-    // First, get all homework to find the one with matching title
-    const response = await axios.get(`${API_URL}/api/homework`);
-    const homeworkList = response.data;
+    const { id } = req.params;
+    const homework = await Homework.findByIdAndDelete(id);
     
-    const homeworkToRemove = homeworkList.find(hw => 
-      hw.title.toLowerCase() === title.toLowerCase()
-    );
-
-    if (!homeworkToRemove) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor('#ff0000')
-        .setTitle('❌ Homework Not Found')
-        .setDescription(`No homework found with the title "${title}".`)
-        .setTimestamp();
-
-      return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-    }
-
-  // Delete the homework by id or uid
-  const deleteId = homeworkToRemove.uid || homeworkToRemove._id;
-  await axios.delete(`${API_URL}/api/homework/${deleteId}`);
-
-    const dueDateWinnipeg = utcToZonedTime(new Date(homeworkToRemove.dueDate), WINNIPEG_TIMEZONE);
-    const dueDateStr = format(dueDateWinnipeg, 'MMM do, yyyy \'at\' h:mm a', { timeZone: WINNIPEG_TIMEZONE });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor('#00ff00')
-      .setTitle('✅ Homework Removed Successfully')
-      .setDescription(`**${homeworkToRemove.title}** has been removed from your homework tracker.`)
-      .addFields(
-        { name: '📚 Subject', value: homeworkToRemove.subject, inline: true },
-        { name: '📅 Due Date', value: dueDateStr, inline: true }
-      )
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [successEmbed] });
-  } catch (error) {
-    console.error('Error removing homework:', error);
-    
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Remove Homework')
-      .setDescription('Could not remove homework from the tracker. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-}
-
-// List study links with their IDs
-async function handleLinkShow(interaction) {
-  try {
-    const response = await axios.get(`${API_URL}/api/study-links`);
-    const links = response.data;
-
-    if (!links || links.length === 0) {
-      const noLinks = new EmbedBuilder()
-        .setColor('#808080')
-        .setTitle('🔗 No Study Links Found')
-        .setDescription('There are no study resource links in the database.')
-        .setTimestamp();
-
-      return await interaction.reply({ embeds: [noLinks] });
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor('#00cc99')
-      .setTitle('🔗 Study Resources')
-      .setDescription(`Showing ${links.length} link${links.length !== 1 ? 's' : ''}`)
-      .setTimestamp();
-
-    const items = links.slice(0, 25);
-    items.forEach(link => {
-      embed.addFields({
-        name: `${link.title} (${link.addedBy})`,
-        value: `**ID:** ${link.uid || link._id}\n**URL:** ${link.url}\n${link.description || ''}`,
-        inline: false
-      });
-    });
-
-    if (links.length > 25) embed.setFooter({ text: `Showing first 25 of ${links.length} links` });
-
-    await interaction.reply({ embeds: [embed] });
-  } catch (error) {
-    console.error('Error listing study links:', error);
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to List Study Links')
-      .setDescription('Could not retrieve study links. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-}
-
-async function handleListHomework(interaction) {
-  const statusFilter = interaction.options.getString('status') || 'all';
-
-  try {
-    const response = await axios.get(`${API_URL}/api/homework`);
-    let homeworkList = response.data;
-
-    // Filter by status if specified
-    if (statusFilter !== 'all') {
-      homeworkList = homeworkList.filter(hw => hw.status === statusFilter);
-    }
-
-    if (homeworkList.length === 0) {
-      const noHomeworkEmbed = new EmbedBuilder()
-        .setColor('#808080')
-        .setTitle('📚 No Homework Found')
-        .setDescription(statusFilter === 'all' 
-          ? 'You have no homework assignments.' 
-          : `No homework found with status "${statusFilter}".`)
-        .setTimestamp();
-
-      return await interaction.reply({ embeds: [noHomeworkEmbed] });
-    }
-
-    // Sort by due date
-    homeworkList.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
-
-    const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('📚 Your SMS Grade 9 Homework Assignments')
-      .setDescription(`Showing ${homeworkList.length} assignment${homeworkList.length !== 1 ? 's' : ''}`)
-      .setTimestamp();
-
-    // Add homework items (Discord embed field limit is 25, so we'll limit to 20)
-    const itemsToShow = homeworkList.slice(0, 20);
-    
-    itemsToShow.forEach((homework, index) => {
-      const dueDateUTC = new Date(homework.dueDate);
-      const dueDateWinnipeg = utcToZonedTime(dueDateUTC, WINNIPEG_TIMEZONE);
-      const nowWinnipeg = utcToZonedTime(new Date(), WINNIPEG_TIMEZONE);
-      const isOverdue = dueDateWinnipeg < nowWinnipeg && homework.status === 'Not Done';
-      
-      const statusEmoji = homework.status === 'Done' ? '✅' : (isOverdue ? '🔴' : '⏰');
-      const dueDateStr = format(dueDateWinnipeg, 'MMM do, yyyy \'at\' h:mm a', { timeZone: WINNIPEG_TIMEZONE });
-      
-      embed.addFields({
-        name: `${statusEmoji} ${homework.title}`,
-        // include uid so users can reference it for edit/delete
-        value: `**ID:** ${homework.uid || homework._id}\n**Subject:** ${homework.subject}\n**Due:** ${dueDateStr}\n**Status:** ${homework.status}`,
-        inline: true
-      });
-    });
-
-    if (homeworkList.length > 20) {
-      embed.setFooter({ text: `Showing first 20 of ${homeworkList.length} assignments` });
-    }
-
-    await interaction.reply({ embeds: [embed] });
-  } catch (error) {
-    console.error('Error listing homework:', error);
-    
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to List Homework')
-      .setDescription('Could not retrieve homework list. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-}
-
-async function handleDatabase(interaction) {
-  try {
-    const response = await axios.get(`${API_URL}/api/homework`);
-    const homeworkList = response.data;
-
-    if (homeworkList.length === 0) {
-      const noHomeworkEmbed = new EmbedBuilder()
-        .setColor('#808080')
-        .setTitle('📊 Database - No Homework Found')
-        .setDescription('There are no homework assignments in the database.')
-        .setTimestamp();
-
-      return await interaction.reply({ embeds: [noHomeworkEmbed] });
-    }
-
-    // Collect all unique usernames and their completion status
-    const userStats = new Map();
-    
-    homeworkList.forEach(homework => {
-      // Get all users who have completed this homework
-      const completedUsers = homework.completedBy.map(completion => completion.username);
-      
-      // Add all users who have completed any homework to our stats
-      completedUsers.forEach(username => {
-        if (!userStats.has(username)) {
-          userStats.set(username, { completed: 0, total: 0 });
-        }
-        userStats.get(username).completed++;
-      });
-      
-      // Count total homework for each user (everyone has access to all homework)
-      // We'll track this by counting total homework assignments
-    });
-
-    // Calculate total homework count
-    const totalHomework = homeworkList.length;
-    
-    // Update total for all users who have completed at least one homework
-    userStats.forEach((stats, username) => {
-      stats.total = totalHomework;
-    });
-
-    // Create embed
-    const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('📊 SMS Grade 9 Homework Database')
-      .setDescription(`Completion status for all users (${totalHomework} total assignments)`)
-      .setTimestamp();
-
-    if (userStats.size === 0) {
-      embed.addFields({
-        name: '📝 Status',
-        value: 'No users have completed any homework yet.',
-        inline: false
-      });
-    } else {
-      // Sort users by completion rate (descending)
-      const sortedUsers = Array.from(userStats.entries()).sort((a, b) => {
-        const aRate = a[1].completed / a[1].total;
-        const bRate = b[1].completed / b[1].total;
-        return bRate - aRate;
-      });
-
-      // Add user statistics (Discord embed field limit is 25, so we'll limit to 20 users)
-      const usersToShow = sortedUsers.slice(0, 20);
-      
-      usersToShow.forEach(([username, stats]) => {
-        const completionRate = ((stats.completed / stats.total) * 100).toFixed(1);
-        const statusEmoji = stats.completed === stats.total ? '🏆' : 
-                           stats.completed > stats.total * 0.5 ? '🔥' : 
-                           stats.completed > 0 ? '📚' : '⏰';
-        
-        embed.addFields({
-          name: `${statusEmoji} ${username}`,
-          value: `**Completed:** ${stats.completed}/${stats.total} (${completionRate}%)`,
-          inline: true
-        });
-      });
-
-      if (userStats.size > 20) {
-        embed.setFooter({ text: `Showing top 20 of ${userStats.size} users` });
-      }
-    }
-
-    await interaction.reply({ embeds: [embed] });
-  } catch (error) {
-    console.error('Error fetching database:', error);
-    
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Load Database')
-      .setDescription('Could not retrieve user completion data. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-}
-
-async function handleShowWebsite(interaction) {
-  try {
-    await interaction.deferReply();
-
-    // Measure API health
-    let apiUp = false;
-    let apiLatencyMs = null;
-    let health = null;
-    const apiStart = Date.now();
-    try {
-      const res = await axios.get(`${API_URL}/health`, { timeout: 8000 });
-      apiLatencyMs = Date.now() - apiStart;
-      apiUp = res.status === 200 && res.data && res.data.status === 'OK';
-      health = res.data || null;
-    } catch (e) {
-      apiLatencyMs = Date.now() - apiStart;
-      apiUp = false;
-    }
-
-    // Measure Website reachability
-    let siteUp = false;
-    let siteLatencyMs = null;
-    const siteStart = Date.now();
-    try {
-      const res = await axios.get(WEBSITE_URL, { timeout: 8000 });
-      siteLatencyMs = Date.now() - siteStart;
-      siteUp = res.status >= 200 && res.status < 400;
-    } catch (e) {
-      siteLatencyMs = Date.now() - siteStart;
-      siteUp = false;
-    }
-
-    // DB status comes from health if available
-    const dbUp = !!(health && health.db && health.db.up);
-
-    // Build overall rating
-    // Up: all up
-    // Moderate: API up but either website or DB down, or high latency (>1200ms)
-    // Down: API down
-    let overall = 'Up';
-    if (!apiUp) {
-      overall = 'Down';
-    } else if (!siteUp || !dbUp || (apiLatencyMs !== null && apiLatencyMs > 1200)) {
-      overall = 'Moderate';
-    }
-
-    const color = overall === 'Up' ? 0x00ff00 : overall === 'Moderate' ? 0xffa500 : 0xff0000;
-    const statusEmoji = overall === 'Up' ? '🟢' : overall === 'Moderate' ? '🟠' : '🔴';
-
-    const embed = new EmbedBuilder()
-      .setColor(color)
-      .setTitle(`${statusEmoji} Website Status`)
-      .setDescription('Current status of Website, API, and Database')
-      .addFields(
-        {
-          name: '🌐 Website',
-          value: `URL: ${WEBSITE_URL}\nStatus: ${siteUp ? 'Up ✅' : 'Down ❌'}${siteLatencyMs !== null ? `\nLatency: ${siteLatencyMs} ms` : ''}`,
-          inline: false
-        },
-        {
-          name: '🧠 API',
-          value: `URL: ${API_URL}\nStatus: ${apiUp ? 'Up ✅' : 'Down ❌'}${apiLatencyMs !== null ? `\nLatency: ${apiLatencyMs} ms` : ''}`,
-          inline: false
-        },
-        {
-          name: '🗄️ Database',
-          value: `Status: ${dbUp ? 'Up ✅' : 'Down ❌'}`,
-          inline: false
-        }
-      )
-      .setFooter({ text: `Overall: ${overall}` })
-      .setTimestamp();
-
-    if (health && health.metrics) {
-      embed.addFields({
-        name: '📈 Metrics',
-        value: `Total: ${health.metrics.totalHomework}\nUpcoming: ${health.metrics.upcomingCount}\nOverdue: ${health.metrics.overdueCount}`,
-        inline: false
-      });
-    }
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
-    console.error('Error building status:', error);
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to fetch website status')
-      .setDescription('Please try again later.')
-      .setTimestamp();
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
-    } else {
-      await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-    }
-  }
-}
-
-async function handleEditPrompt(interaction) {
-  // Check if user has admin permissions
-  if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Permission Denied')
-      .setDescription('You need administrator permissions to edit homework assignments.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
-  const homeworkId = interaction.options.getString('homework_id');
-  const newPrompt = interaction.options.getString('new_value');
-
-  try {
-    const response = await axios.get(`${API_URL}/api/homework`);
-    const homeworkList = response.data;
-
-    // If no homework_id provided, list homework with IDs to help the admin choose
-    if (!homeworkId) {
-      if (!homeworkList || homeworkList.length === 0) {
-        const noHomeworkEmbed = new EmbedBuilder()
-          .setColor('#808080')
-          .setTitle('📚 No Homework Found')
-          .setDescription('There are no homework assignments in the database to edit.')
-          .setTimestamp();
-
-        return await interaction.reply({ embeds: [noHomeworkEmbed], ephemeral: true });
-      }
-
-      // Build a short list (first 20) showing ID, title, and current prompt
-      const embed = new EmbedBuilder()
-        .setColor('#0099ff')
-        .setTitle('📚 Homework - Available for Prompt Edit')
-        .setDescription('Use the ID shown here with /editprompt homework_id:<ID> new_value:"<prompt>"')
-        .setTimestamp();
-
-      homeworkList.slice(0, 20).forEach(hw => {
-        embed.addFields({
-          name: `${hw.title} (${hw.creator})`,
-          value: `**ID:** ${hw.uid || hw._id}\n**Current Prompt:** ${hw.prompt || '[none]'}`,
-          inline: false
-        });
-      });
-
-      if (homeworkList.length > 20) embed.setFooter({ text: `Showing first 20 of ${homeworkList.length}` });
-
-      return await interaction.reply({ embeds: [embed], ephemeral: true });
-    }
-
-    // Find the homework by uid or _id
-    const homework = homeworkList.find(hw => hw.uid === homeworkId || hw._id === homeworkId);
     if (!homework) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor('#ff0000')
-        .setTitle('❌ Homework Not Found')
-        .setDescription(`No homework found with ID "${homeworkId}".`)
-        .setTimestamp();
-
-      return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+      return res.status(404).json({ error: 'Homework not found' });
     }
-
-    // Show previous prompt and prompt history
-    const prevPrompt = homework.prompt || '[none]';
-    // Show top 3 history items if any
-    const history = (homework.promptHistory || []).slice(-3).reverse();
-
-    const previewEmbed = new EmbedBuilder()
-      .setColor('#00ccff')
-      .setTitle(`✏️ Edit Prompt — ${homework.title}`)
-      .addFields(
-        { name: '🆔 ID', value: homework.uid || homework._id, inline: true },
-        { name: '👤 Creator', value: homework.creator, inline: true },
-        { name: '📄 Previous Prompt', value: prevPrompt, inline: false }
-      )
-      .setTimestamp();
-
-    if (history.length > 0) {
-      previewEmbed.addFields({ name: '📚 Prompt History (latest first)', value: history.map(h => `• ${h.prompt}`).join('\n') });
-    }
-
-    // If new prompt not provided, instruct how to update
-    if (!newPrompt) {
-      previewEmbed.setFooter({ text: 'To update, run: /editprompt homework_id:<ID> new_value:"<new prompt>"' });
-      return await interaction.reply({ embeds: [previewEmbed], ephemeral: true });
-    }
-
-    // Update prompt via the new API endpoint
-    await axios.put(`${API_URL}/api/homework/${homeworkId}/prompt`, { prompt: newPrompt });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor('#00ff00')
-      .setTitle('✅ Prompt Updated')
-      .setDescription(`Prompt for **${homework.title}** has been updated.`)
-      .addFields(
-        { name: '🆔 ID', value: homework.uid || homework._id, inline: true },
-        { name: '📄 New Prompt', value: newPrompt, inline: false }
-      )
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [successEmbed] });
+    
+    res.json({ message: 'Homework deleted successfully', homework });
   } catch (error) {
-    console.error('Error editing homework prompt:', error);
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Edit Prompt')
-      .setDescription('Could not update the prompt. Please try again later.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    res.status(500).json({ error: error.message });
   }
-}
+});
 
-async function handleLink(interaction) {
-  // Check rate limiting
-  if (!checkCooldown(interaction.user.id, 'link')) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('⏰ Rate Limited')
-      .setDescription('Please wait 30 seconds before using this command again.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-  }
-
-  const url = interaction.options.getString('url');
-  const title = interaction.options.getString('title');
-  const description = interaction.options.getString('description') || '';
-  const addedBy = interaction.user.username;
-
-  // Basic URL validation
+app.put('/api/homework/:id', async (req, res) => {
   try {
-    new URL(url);
-  } catch {
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Invalid URL')
-      .setDescription('Please provide a valid URL.')
-      .setTimestamp();
-
-    return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    const homework = await Homework.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    res.json(homework);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
+});
 
+// Personal completion route (PATCH - preferred)
+app.patch('/api/homework/:id/complete', async (req, res) => {
   try {
-    const response = await axios.post(`${API_URL}/api/study-links`, {
+    const { id } = req.params;
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const homework = await Homework.findById(id);
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    // Check if user already completed this homework
+    const alreadyCompleted = homework.completedBy.some(completion => completion.username === username);
+    
+    if (alreadyCompleted) {
+      // Remove completion
+      homework.completedBy = homework.completedBy.filter(completion => completion.username !== username);
+    } else {
+      // Add completion
+      homework.completedBy.push({ username, completedAt: new Date() });
+    }
+    
+    await homework.save();
+    res.json({ success: true, homework });
+  } catch (error) {
+    console.error('Error marking homework complete:', error);
+    res.status(500).json({ error: 'Server error updating homework' });
+  }
+});
+
+// Personal completion route (POST - fallback)
+app.post('/api/homework/:id/complete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const homework = await Homework.findById(id);
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    // Check if user already completed this homework
+    const alreadyCompleted = homework.completedBy.some(completion => completion.username === username);
+    
+    if (alreadyCompleted) {
+      // Remove completion
+      homework.completedBy = homework.completedBy.filter(completion => completion.username !== username);
+    } else {
+      // Add completion
+      homework.completedBy.push({ username, completedAt: new Date() });
+    }
+    
+    await homework.save();
+    res.json({ success: true, homework });
+  } catch (error) {
+    console.error('Error marking homework complete:', error);
+    res.status(500).json({ error: 'Server error updating homework' });
+  }
+});
+
+// Study Links API endpoints
+app.get('/api/study-links', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      console.warn('GET /api/study-links requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
+    const studyLinks = await StudyLink.find().sort({ createdAt: -1 });
+    res.json(studyLinks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/study-links', strictLimiter, async (req, res) => {
+  try {
+    const { url, title, description, addedBy } = req.body;
+    
+    if (!url || !title || !addedBy) {
+      return res.status(400).json({ error: 'URL, title, and addedBy are required' });
+    }
+
+    // Basic URL validation
+    try {
+      new URL(url);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    const studyLink = new StudyLink({
       url,
       title,
-      description,
+      description: description || '',
       addedBy
     });
 
-    const studyLink = response.data;
+    await studyLink.save();
+    res.status(201).json(studyLink);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const successEmbed = new EmbedBuilder()
-      .setColor('#00ff00')
-      .setTitle('✅ Study Link Added Successfully')
-      .setDescription(`**${studyLink.title}** has been added to the study resources.`)
-      .addFields(
-        { name: '🔗 URL', value: `[${studyLink.title}](${studyLink.url})`, inline: false },
-        { name: '👤 Added By', value: studyLink.addedBy, inline: true }
-      )
-      .setTimestamp();
+app.delete('/api/study-links/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studyLink = await StudyLink.findByIdAndDelete(id);
+    
+    if (!studyLink) {
+      return res.status(404).json({ error: 'Study link not found' });
+    }
+    
+    res.json({ message: 'Study link deleted successfully', studyLink });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    // Show link ID so it can be referenced later
-    successEmbed.addFields({ name: '🆔 ID', value: studyLink.uid || studyLink._id, inline: true });
-
-    if (description) {
-      successEmbed.addFields({ name: '📄 Description', value: description, inline: false });
+// File upload endpoint
+app.post('/api/upload', upload.array('files', 5), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    await interaction.reply({ embeds: [successEmbed] });
+    const uploadedFiles = req.files.map(file => ({
+      filename: file.originalname,
+      url: `${req.protocol}://${req.get('host')}/${file.filename}`,
+      mimetype: file.mimetype,
+      size: file.size
+    }));
+
+    res.json({ success: true, files: uploadedFiles });
   } catch (error) {
-    console.error('Error adding study link:', error);
-    
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Add Study Link')
-      .setDescription('Could not add the study link. Please try again later.')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    console.error('Error uploading files:', error);
+    res.status(500).json({ error: 'Failed to upload files' });
   }
-}
+});
 
-async function handleDeleteLink(interaction) {
-  const linkId = interaction.options.getString('link_id');
-
+// Contact Form API endpoints
+app.post('/api/contact', contactLimiter, async (req, res) => {
   try {
-    const response = await axios.delete(`${API_URL}/api/study-links/${linkId}`);
-    const deletedLink = response.data.studyLink;
-
-    const successEmbed = new EmbedBuilder()
-      .setColor('#00ff00')
-      .setTitle('✅ Study Link Deleted Successfully')
-      .setDescription(`**${deletedLink.title}** has been removed from the study resources.`)
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [successEmbed] });
-  } catch (error) {
-    console.error('Error deleting study link:', error);
+    const { type, title, description, attachments, submittedBy } = req.body;
     
-    const errorEmbed = new EmbedBuilder()
-      .setColor('#ff0000')
-      .setTitle('❌ Failed to Delete Study Link')
-      .setDescription('Could not delete the study link. Please check the ID and try again.')
-      .setTimestamp();
+    if (!type || !title || !description || !submittedBy) {
+      return res.status(400).json({ error: 'Type, title, description, and submittedBy are required' });
+    }
 
-    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    if (!['suggestion', 'issue'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be either "suggestion" or "issue"' });
+    }
+
+    const contactForm = new ContactForm({
+      type,
+      title,
+      description,
+      attachments: attachments || [],
+      submittedBy
+    });
+
+    await contactForm.save();
+    
+    // Send Discord webhook
+    await sendDiscordWebhook(contactForm);
+    
+    res.status(201).json(contactForm);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-}
-
-// Error handling
-client.on('error', error => {
-  console.error('Discord client error:', error);
 });
 
-process.on('unhandledRejection', error => {
-  console.error('Unhandled promise rejection:', error);
+app.get('/api/contact', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      console.warn('GET /api/contact requested but DB not connected — returning empty array');
+      return res.json([]);
+    }
+
+    const contactForms = await ContactForm.find().sort({ createdAt: -1 });
+    res.json(contactForms);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Login to Discord
-client.login(process.env.DISCORD_TOKEN);
+// Health check endpoint (enhanced)
+app.get('/health', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const dbState = mongoose.connection.readyState; // 1 connected, 2 connecting, 0 disconnected, 3 disconnecting
+    const isDbUp = dbState === 1;
 
-// Add a simple HTTP server for Render port binding
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'Discord Bot Running', 
-    bot: client.user?.tag || 'Starting...',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
+    // Basic metrics
+    const [totalHomework, upcomingCount, overdueCount] = await Promise.all([
+      Homework.countDocuments({}),
+      Homework.countDocuments({ dueDate: { $gte: new Date() } }),
+      Homework.countDocuments({ dueDate: { $lt: new Date() } })
+    ]);
+
+    const latencyMs = Date.now() - startedAt;
+
+    res.json({
+      status: 'OK',
+      api: { up: true, latencyMs },
+      db: { up: isDbUp, state: dbState },
+      metrics: {
+        totalHomework,
+        upcomingCount,
+        overdueCount
+      },
+      serverTimeUtc: new Date().toISOString(),
+      timezone: WINNIPEG_TIMEZONE
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'ERROR', error: error.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Discord bot HTTP server running on port ${PORT} (for Render port binding)`);
+  console.log(`Server running on port ${PORT}`);
 });
+
+// Keep-alive ping to prevent Render from sleeping
+setInterval(() => {
+  console.log('Keep-alive ping - server is running');
+}, 5 * 60 * 1000); // Every 5 minutes
