@@ -10,6 +10,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -130,6 +131,13 @@ db.once('open', () => {
 
 // Homework Schema
 const homeworkSchema = new mongoose.Schema({
+  // Public unique id used by the bot and UI (short, human-friendly)
+  uid: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
   title: {
     type: String,
     required: true,
@@ -148,6 +156,13 @@ const homeworkSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Optional stored prompt that was used when creating this homework
+  prompt: {
+    type: String,
+    default: ''
+  },
+  // Keep a small history of previous prompts when updated
+  promptHistory: [{ prompt: String, updatedAt: { type: Date, default: Date.now } }],
   creator: {
     type: String,
     required: true,
@@ -172,6 +187,13 @@ const Homework = mongoose.model('Homework', homeworkSchema);
 
 // Study Links Schema
 const studyLinkSchema = new mongoose.Schema({
+  // Public unique id for the study link
+  uid: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
   url: {
     type: String,
     required: true,
@@ -404,12 +426,29 @@ app.post('/api/homework', strictLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Title, subject, due date, and creator are required' });
     }
 
+    // Generate a unique short uid (8 chars) and ensure uniqueness
+    let uid;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      uid = crypto.randomBytes(4).toString('hex'); // 8 hex chars
+      // Check quickly if exists
+      // eslint-disable-next-line no-await-in-loop
+      const exists = await Homework.findOne({ uid });
+      if (!exists) break;
+      uid = null;
+    }
+
+    if (!uid) {
+      return res.status(500).json({ error: 'Failed to generate unique id' });
+    }
+
     const homework = new Homework({
+      uid,
       title,
       subject,
       dueDate: new Date(dueDate),
       description: description || '',
-      creator
+      creator,
+      prompt: req.body.prompt || ''
     });
 
     await homework.save();
@@ -419,37 +458,79 @@ app.post('/api/homework', strictLimiter, async (req, res) => {
   }
 });
 
+// Allow deletion by Mongo _id or uid for convenience
 app.delete('/api/homework/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const homework = await Homework.findByIdAndDelete(id);
-    
+    let homework = null;
+
+    // Try by ObjectId first
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      homework = await Homework.findByIdAndDelete(id);
+    }
+
+    // If not found, try by uid
+    if (!homework) {
+      homework = await Homework.findOneAndDelete({ uid: id });
+    }
+
     if (!homework) {
       return res.status(404).json({ error: 'Homework not found' });
     }
-    
+
     res.json({ message: 'Homework deleted successfully', homework });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// Update homework by id or uid (supports updating arbitrary fields like status/title)
 app.put('/api/homework/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
-    
-    const homework = await Homework.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true }
-    );
-    
-    if (!homework) {
-      return res.status(404).json({ error: 'Homework not found' });
+    const update = req.body || {};
+
+    let homework = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      homework = await Homework.findByIdAndUpdate(id, update, { new: true });
     }
-    
+
+    if (!homework) {
+      homework = await Homework.findOneAndUpdate({ uid: id }, update, { new: true });
+    }
+
+    if (!homework) return res.status(404).json({ error: 'Homework not found' });
+
     res.json(homework);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update prompt endpoint specifically: records previous prompt and sets new
+app.put('/api/homework/:id/prompt', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { prompt } = req.body;
+
+    if (typeof prompt !== 'string') return res.status(400).json({ error: 'prompt (string) is required' });
+
+    let homework = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      homework = await Homework.findById(id);
+    }
+    if (!homework) homework = await Homework.findOne({ uid: id });
+    if (!homework) return res.status(404).json({ error: 'Homework not found' });
+
+    // Save previous prompt into history if non-empty
+    if (homework.prompt && homework.prompt.trim() !== '') {
+      homework.promptHistory.push({ prompt: homework.prompt, updatedAt: new Date() });
+    }
+
+    homework.prompt = prompt;
+    await homework.save();
+
+    res.json({ success: true, homework });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -555,7 +636,20 @@ app.post('/api/study-links', strictLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
+    // Generate unique uid for link
+    let uid;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      uid = crypto.randomBytes(4).toString('hex');
+      // eslint-disable-next-line no-await-in-loop
+      const exists = await StudyLink.findOne({ uid });
+      if (!exists) break;
+      uid = null;
+    }
+
+    if (!uid) return res.status(500).json({ error: 'Failed to generate unique id for link' });
+
     const studyLink = new StudyLink({
+      uid,
       url,
       title,
       description: description || '',
@@ -572,12 +666,15 @@ app.post('/api/study-links', strictLimiter, async (req, res) => {
 app.delete('/api/study-links/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const studyLink = await StudyLink.findByIdAndDelete(id);
-    
-    if (!studyLink) {
-      return res.status(404).json({ error: 'Study link not found' });
+    let studyLink = null;
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      studyLink = await StudyLink.findByIdAndDelete(id);
     }
-    
+    if (!studyLink) studyLink = await StudyLink.findOneAndDelete({ uid: id });
+
+    if (!studyLink) return res.status(404).json({ error: 'Study link not found' });
+
     res.json({ message: 'Study link deleted successfully', studyLink });
   } catch (error) {
     res.status(500).json({ error: error.message });
