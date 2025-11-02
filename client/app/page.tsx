@@ -9,6 +9,7 @@ import HomeworkCard from './components/HomeworkCard'
 import HomeworkModal from './components/HomeworkModal'
 import Header from './components/Header'
 import ContactModal from './components/ContactModal'
+import BobbyChat from './components/BobbyChat'
 
 interface Homework {
   _id: string
@@ -483,6 +484,9 @@ export default function Home() {
         isOpen={isContactModalOpen}
         onClose={() => setIsContactModalOpen(false)}
       />
+
+      {/* Bobby AI Chat */}
+      <BobbyChat apiUrl={API_URL} />
 
       {/* Toast Notification */}
       <AnimatePresence>
