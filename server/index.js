@@ -56,7 +56,9 @@ app.use(cors({
   origin: [
     'https://sms-grade-9-homework.onrender.com',
     'http://localhost:3000',
-    'http://localhost:3001'
+    'http://localhost:3001',
+    // Allow any origin in development, be more specific in production
+    ...(process.env.NODE_ENV === 'development' ? ['*'] : [])
   ],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
   credentials: true,
@@ -651,7 +653,7 @@ app.get('/api/contact', async (req, res) => {
   }
 });
 
-// Bobby AI Chat endpoint
+// Bobby AI Chat endpoint - Debug mode
 app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
   try {
     const { message } = req.body;
@@ -661,15 +663,20 @@ app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
     }
 
     // Check if API keys are configured
-    const GROQ_API_KEY = process.env.GROQ_API_KEY;
-    const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
+    const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
 
-    if (!GROQ_API_KEY) {
+    // Enhanced API key validation
+    if (!GROQ_API_KEY || GROQ_API_KEY === '' || GROQ_API_KEY === 'your_groq_api_key_here') {
+      console.error('GROQ_API_KEY is missing or not set properly');
       return res.status(500).json({ 
         error: 'AI service not configured. Please set GROQ_API_KEY in environment variables.',
         response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
       });
     }
+
+    // Log that API key exists (but don't log the actual key)
+    console.log('Bobby chat request received. GROQ_API_KEY exists:', !!GROQ_API_KEY, 'Length:', GROQ_API_KEY.length);
 
     // Determine if the user is asking for web research
     const needsResearch = message.toLowerCase().includes('search') || 
@@ -777,19 +784,41 @@ Be encouraging, clear, and age-appropriate in your responses.`;
         researchUsed: !!researchResults
       });
     } catch (groqError) {
-      console.error('Groq API error:', groqError);
+      console.error('Groq API error:', {
+        status: groqError.response?.status,
+        statusText: groqError.response?.statusText,
+        message: groqError.message,
+        data: groqError.response?.data
+      });
       
-      // Fallback response if API fails
+      // Enhanced error handling with detailed messages
       if (groqError.response?.status === 401) {
         return res.status(500).json({ 
           error: 'Invalid API key',
-          response: 'Sorry, Bobby is not properly configured. Please check the API key.'
+          response: 'Sorry, Bobby is not properly configured. Please check that your GROQ_API_KEY is correct in Render environment variables.'
         });
       }
       
+      if (groqError.response?.status === 429) {
+        return res.status(500).json({ 
+          error: 'Rate limit exceeded',
+          response: 'Bobby is being used too frequently. Please wait a moment and try again.'
+        });
+      }
+      
+      if (groqError.code === 'ECONNREFUSED' || groqError.code === 'ETIMEDOUT') {
+        return res.status(500).json({ 
+          error: 'Connection error',
+          response: 'Bobby cannot connect to the AI service. Please check your internet connection and try again.'
+        });
+      }
+      
+      // Return more detailed error for debugging
+      const errorMessage = groqError.response?.data?.error?.message || groqError.message || 'Unknown error';
       return res.status(500).json({ 
         error: 'AI service error',
-        response: 'Sorry, I encountered an error. Please try again in a moment.'
+        response: `Sorry, I encountered an error: ${errorMessage}. Please try again in a moment.`,
+        details: process.env.NODE_ENV === 'development' ? groqError.message : undefined
       });
     }
   } catch (error) {
@@ -798,6 +827,57 @@ Be encouraging, clear, and age-appropriate in your responses.`;
       error: error.message,
       response: 'Sorry, I encountered an error processing your request.'
     });
+  }
+});
+
+// Bobby AI Health Check endpoint - test API configuration
+app.get('/api/bobby/health', async (req, res) => {
+  try {
+    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
+    const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
+    
+    const status = {
+      groq: {
+        configured: !!GROQ_API_KEY && GROQ_API_KEY !== '' && GROQ_API_KEY !== 'your_groq_api_key_here',
+        keyLength: GROQ_API_KEY ? GROQ_API_KEY.length : 0,
+        keyPrefix: GROQ_API_KEY ? GROQ_API_KEY.substring(0, 8) + '...' : 'not set'
+      },
+      tavily: {
+        configured: !!TAVILY_API_KEY && TAVILY_API_KEY !== '' && TAVILY_API_KEY !== 'your_tavily_api_key_here',
+        keyLength: TAVILY_API_KEY ? TAVILY_API_KEY.length : 0
+      }
+    };
+    
+    // Try to verify Groq API key if configured
+    if (status.groq.configured) {
+      try {
+        const testResponse = await axios.post(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            model: 'llama-3.1-70b-versatile',
+            messages: [{ role: 'user', content: 'Hi' }],
+            max_tokens: 5
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${GROQ_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 5000
+          }
+        );
+        status.groq.working = true;
+      } catch (testError) {
+        status.groq.working = false;
+        status.groq.error = testError.response?.status === 401 ? 'Invalid API key' : 
+                           testError.response?.status === 429 ? 'Rate limited' :
+                           testError.message;
+      }
+    }
+    
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
