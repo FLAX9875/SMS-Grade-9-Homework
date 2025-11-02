@@ -34,18 +34,18 @@ export default function Header({ onContactClick }: HeaderProps) {
             </div>
           </div>
           
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="flex items-center space-x-2 md:space-x-4">
             <button
               onClick={onContactClick}
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-sm font-medium"
+              className="px-3 py-2 md:px-4 md:py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-xs md:text-sm font-medium"
             >
               Contact Us
             </button>
-            <div className="text-right">
+            <div className="hidden md:block text-right">
               <p className="text-sm text-dark-text-secondary">Auto-refresh</p>
               <p className="text-xs text-gray-500">Every 60 seconds</p>
             </div>
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+            <div className="hidden md:block w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
           </div>
         </div>
       </div>
