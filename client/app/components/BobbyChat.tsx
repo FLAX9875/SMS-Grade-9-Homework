@@ -80,10 +80,29 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
       setMessages(prev => [...prev, assistantMessage])
     } catch (error) {
       console.error('Error sending message:', error)
+      
+      // Try to get a more specific error message
+      let errorContent = 'Sorry, I encountered an error. Please make sure the AI service is configured correctly.'
+      
+      if (axios.isAxiosError(error)) {
+        if (error.response?.data?.response) {
+          // Use the error message from the backend
+          errorContent = error.response.data.response
+        } else if (error.response?.data?.error) {
+          errorContent = `Error: ${error.response.data.error}`
+        } else if (error.response?.status === 500) {
+          errorContent = 'Server error. Please check that the GROQ_API_KEY is set correctly in your Render environment variables.'
+        } else if (error.response?.status === 429) {
+          errorContent = 'Too many requests. Please wait a moment and try again.'
+        } else if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+          errorContent = 'Cannot connect to the server. Please check that your backend is running.'
+        }
+      }
+      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please make sure the AI service is configured correctly.',
+        content: errorContent,
         timestamp: new Date()
       }
       setMessages(prev => [...prev, errorMessage])
