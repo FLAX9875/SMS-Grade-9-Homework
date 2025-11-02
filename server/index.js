@@ -10,6 +10,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -90,7 +91,7 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 10 * 1024 * 1024 // 10MB limit for images
   },
   fileFilter: (req, file, cb) => {
     // Allow images and common document types
@@ -654,12 +655,14 @@ app.get('/api/contact', async (req, res) => {
 });
 
 // Bobby AI Chat endpoint - Debug mode
-app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
+app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
+    const imageFile = req.file;
     
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return res.status(400).json({ error: 'Message is required' });
+    // Allow empty message if image is provided
+    if ((!message || typeof message !== 'string' || message.trim().length === 0) && !imageFile) {
+      return res.status(400).json({ error: 'Message or image is required' });
     }
 
     // Check if API keys are configured
@@ -678,26 +681,44 @@ app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
     // Log that API key exists (but don't log the actual key)
     console.log('Bobby chat request received. GROQ_API_KEY exists:', !!GROQ_API_KEY, 'Length:', GROQ_API_KEY.length);
 
+    // Handle image if uploaded
+    let imageBase64 = null;
+    let imageMimeType = 'image/jpeg';
+    if (imageFile) {
+      // Convert image to base64 for Groq Vision API
+      const imageBuffer = fs.readFileSync(imageFile.path);
+      imageBase64 = imageBuffer.toString('base64');
+      imageMimeType = imageFile.mimetype || 'image/jpeg';
+      
+      // Clean up uploaded file after reading
+      try {
+        fs.unlinkSync(imageFile.path);
+      } catch (err) {
+        console.error('Error deleting temp file:', err);
+      }
+    }
+
     // Determine if the user is asking for web research
-    const needsResearch = message.toLowerCase().includes('search') || 
-                         message.toLowerCase().includes('research') ||
-                         message.toLowerCase().includes('find') ||
-                         message.toLowerCase().includes('look up') ||
-                         message.toLowerCase().includes('what is') ||
-                         message.toLowerCase().includes('who is') ||
-                         message.toLowerCase().includes('when did');
+    const messageLower = (message || '').toLowerCase();
+    const needsResearch = messageLower.includes('search') || 
+                         messageLower.includes('research') ||
+                         messageLower.includes('find') ||
+                         messageLower.includes('look up') ||
+                         messageLower.includes('what is') ||
+                         messageLower.includes('who is') ||
+                         messageLower.includes('when did');
 
     let researchResults = null;
     
     // Perform web search if needed and API key is available
     if (needsResearch && TAVILY_API_KEY) {
       try {
-        const searchQuery = message.replace(/search|research|find|look up/gi, '').trim();
+        const searchQuery = (message || '').replace(/search|research|find|look up/gi, '').trim() || (message || '');
         const searchResponse = await axios.post(
           'https://api.tavily.com/search',
           {
             api_key: TAVILY_API_KEY,
-            query: searchQuery || message,
+            query: searchQuery || message || 'homework help',
             search_depth: 'basic',
             max_results: 5
           },
@@ -725,9 +746,10 @@ app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
     // Construct the prompt for Bobby
     let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant for Grade 9 students. 
 You help students with their homework, explain concepts clearly, answer questions, and provide educational support.
-Be encouraging, clear, and age-appropriate in your responses.`;
+Be encouraging, clear, and age-appropriate in your responses.
+${imageBase64 ? 'You can analyze images of homework questions and provide detailed explanations and solutions.' : ''}`;
 
-    let userPrompt = message;
+    let userPrompt = message || '';
 
     // If we have research results, include them in the context
     if (researchResults && researchResults.length > 0) {
@@ -738,25 +760,48 @@ Be encouraging, clear, and age-appropriate in your responses.`;
         userPrompt += `Result ${index + 1}:\nTitle: ${result.title}\nURL: ${result.url}\nContent: ${result.content}\n\n`;
       });
       
-      userPrompt += `User's original question: ${message}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
+      userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
     // Call Groq API (free tier with fast inference)
     try {
+      // Prepare messages for Groq API
+      const messages = [
+        {
+          role: 'system',
+          content: systemPrompt
+        }
+      ];
+
+      // Add user message with image if available
+      if (imageBase64) {
+        messages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: userPrompt || 'Please analyze this homework image and help me with it.'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${imageMimeType};base64,${imageBase64}`
+              }
+            }
+          ]
+        });
+      } else {
+        messages.push({
+          role: 'user',
+          content: userPrompt
+        });
+      }
+
       const groqResponse = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         {
-          model: 'llama-3.3-70b-versatile', // Recommended replacement for deprecated llama-3.1-70b-versatile
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: userPrompt
-            }
-          ],
+          model: imageBase64 ? 'llama-3.2-90b-vision-preview' : 'llama-3.3-70b-versatile', // Use vision model for images
+          messages: messages,
           temperature: 0.7,
           max_tokens: 2048
         },
