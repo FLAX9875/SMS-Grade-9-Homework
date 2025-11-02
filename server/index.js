@@ -651,6 +651,156 @@ app.get('/api/contact', async (req, res) => {
   }
 });
 
+// Bobby AI Chat endpoint
+app.post('/api/bobby/chat', strictLimiter, async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Check if API keys are configured
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ 
+        error: 'AI service not configured. Please set GROQ_API_KEY in environment variables.',
+        response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
+      });
+    }
+
+    // Determine if the user is asking for web research
+    const needsResearch = message.toLowerCase().includes('search') || 
+                         message.toLowerCase().includes('research') ||
+                         message.toLowerCase().includes('find') ||
+                         message.toLowerCase().includes('look up') ||
+                         message.toLowerCase().includes('what is') ||
+                         message.toLowerCase().includes('who is') ||
+                         message.toLowerCase().includes('when did');
+
+    let researchResults = null;
+    
+    // Perform web search if needed and API key is available
+    if (needsResearch && TAVILY_API_KEY) {
+      try {
+        const searchQuery = message.replace(/search|research|find|look up/gi, '').trim();
+        const searchResponse = await axios.post(
+          'https://api.tavily.com/search',
+          {
+            api_key: TAVILY_API_KEY,
+            query: searchQuery || message,
+            search_depth: 'basic',
+            max_results: 5
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          }
+        );
+
+        if (searchResponse.data && searchResponse.data.results) {
+          researchResults = searchResponse.data.results.map((result) => ({
+            title: result.title,
+            url: result.url,
+            content: result.content
+          }));
+        }
+      } catch (searchError) {
+        console.error('Web search error:', searchError);
+        // Continue without search results if search fails
+      }
+    }
+
+    // Construct the prompt for Bobby
+    let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant for Grade 9 students. 
+You help students with their homework, explain concepts clearly, answer questions, and provide educational support.
+Be encouraging, clear, and age-appropriate in your responses.`;
+
+    let userPrompt = message;
+
+    // If we have research results, include them in the context
+    if (researchResults && researchResults.length > 0) {
+      systemPrompt += `\n\nYou have access to recent web search results. Use them to provide accurate and up-to-date information.`;
+      userPrompt = `Based on the following web search results, answer the user's question:\n\n`;
+      
+      researchResults.forEach((result, index) => {
+        userPrompt += `Result ${index + 1}:\nTitle: ${result.title}\nURL: ${result.url}\nContent: ${result.content}\n\n`;
+      });
+      
+      userPrompt += `User's original question: ${message}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
+    }
+
+    // Call Groq API (free tier with fast inference)
+    try {
+      const groqResponse = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          model: 'llama-3.1-70b-versatile', // Free tier model
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: userPrompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2048
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      let aiResponse = groqResponse.data.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+
+      // Add research citations if available
+      if (researchResults && researchResults.length > 0) {
+        aiResponse += '\n\n📚 Sources:\n';
+        researchResults.slice(0, 3).forEach((result, index) => {
+          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
+        });
+      }
+
+      res.json({ 
+        response: aiResponse,
+        researchUsed: !!researchResults
+      });
+    } catch (groqError) {
+      console.error('Groq API error:', groqError);
+      
+      // Fallback response if API fails
+      if (groqError.response?.status === 401) {
+        return res.status(500).json({ 
+          error: 'Invalid API key',
+          response: 'Sorry, Bobby is not properly configured. Please check the API key.'
+        });
+      }
+      
+      return res.status(500).json({ 
+        error: 'AI service error',
+        response: 'Sorry, I encountered an error. Please try again in a moment.'
+      });
+    }
+  } catch (error) {
+    console.error('Chat endpoint error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      response: 'Sorry, I encountered an error processing your request.'
+    });
+  }
+});
+
 // Health check endpoint (enhanced)
 app.get('/health', async (req, res) => {
   const startedAt = Date.now();
