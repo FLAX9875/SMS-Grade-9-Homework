@@ -746,7 +746,7 @@ Be encouraging, clear, and age-appropriate in your responses.`;
       const groqResponse = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         {
-          model: 'llama-3.1-70b-versatile', // Free tier model
+          model: 'llama-3.3-70b-versatile', // Recommended replacement for deprecated llama-3.1-70b-versatile
           messages: [
             {
               role: 'system',
@@ -854,7 +854,7 @@ app.get('/api/bobby/health', async (req, res) => {
         const testResponse = await axios.post(
           'https://api.groq.com/openai/v1/chat/completions',
           {
-            model: 'llama-3.1-70b-versatile',
+            model: 'llama-3.3-70b-versatile',
             messages: [{ role: 'user', content: 'Hi' }],
             max_tokens: 5
           },
