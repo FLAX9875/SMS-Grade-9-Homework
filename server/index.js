@@ -681,8 +681,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
       });
     }
 
-    // Log that API key exists (but don't log the actual key)
-    console.log('Bobby chat request received. GEMINI_API_KEY exists:', !!GEMINI_API_KEY, 'Length:', GEMINI_API_KEY.length, 'Has image:', !!imageFile);
+    console.log('Bobby chat request received. Has image:', !!imageFile);
 
     // Initialize Google Generative AI
     const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -700,8 +699,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
         
         console.log('Image processed:', {
           size: imageBuffer.length,
-          mimeType: imageMimeType,
-          base64Length: imageBase64.length
+          mimeType: imageMimeType
         });
         
         // Clean up uploaded file after reading
@@ -795,31 +793,21 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Choose the correct Gemini model - FIXED MODEL NAMES
-    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-pro";
+    // Use the correct Gemini model names - FIXED
+    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-1.5-flash";
     console.log('Using Gemini model:', modelName);
     
-    const model = genAI.getGenerativeModel({ 
-      model: modelName,
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 2048,
-      },
-      safetySettings: [
-        {
-          category: "HARM_CATEGORY_HARASSMENT",
-          threshold: "BLOCK_MEDIUM_AND_ABOVE"
-        },
-        {
-          category: "HARM_CATEGORY_HATE_SPEECH",
-          threshold: "BLOCK_MEDIUM_AND_ABOVE"
-        }
-      ]
-    });
-
     try {
+      const model = genAI.getGenerativeModel({ 
+        model: modelName,
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 2048,
+        }
+      });
+
       let result;
       
       if (imageBase64) {
@@ -863,41 +851,70 @@ Important guidelines:
       });
 
     } catch (geminiError) {
-      console.error('Gemini API error:', {
-        message: geminiError.message,
-        status: geminiError.response?.status,
-        data: geminiError.response?.data
-      });
+      console.error('Gemini API error:', geminiError);
       
-      // Enhanced error handling with detailed messages
-      if (geminiError.message?.includes('API_KEY_INVALID') || geminiError.message?.includes('API key not valid')) {
+      // Try alternative model names if the first one fails
+      try {
+        console.log('Trying alternative model names...');
+        const alternativeModelName = "gemini-pro-vision";
+        const model = genAI.getGenerativeModel({ 
+          model: alternativeModelName,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2048,
+          }
+        });
+
+        let result;
+        
+        if (imageBase64) {
+          const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image."}`;
+          result = await model.generateContent([
+            promptWithImage,
+            {
+              inlineData: {
+                data: imageBase64,
+                mimeType: imageMimeType
+              }
+            }
+          ]);
+        } else {
+          const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt}`;
+          result = await model.generateContent(fullPrompt);
+        }
+
+        const response = await result.response;
+        let aiResponse = response.text();
+
+        if (researchResults && researchResults.length > 0) {
+          aiResponse += '\n\n📚 Sources:\n';
+          researchResults.slice(0, 3).forEach((result, index) => {
+            aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
+          });
+        }
+
+        console.log('Successfully generated response from Gemini with alternative model');
+        res.json({ 
+          response: aiResponse,
+          researchUsed: !!researchResults
+        });
+
+      } catch (secondError) {
+        console.error('Second Gemini API attempt failed:', secondError);
+        
+        // Final fallback - list available models
+        try {
+          const availableModels = await genAI.listModels();
+          console.log('Available models:', availableModels);
+        } catch (modelError) {
+          console.error('Could not list models:', modelError);
+        }
+
         return res.status(500).json({ 
-          error: 'Invalid API key',
-          response: 'Sorry, Bobby is not properly configured. Please check that your GEMINI_API_KEY is correct in Render environment variables.'
+          error: 'Model not available',
+          response: 'Sorry, the AI service is currently unavailable. Please try again later or contact support.'
         });
       }
-      
-      if (geminiError.message?.includes('quota') || geminiError.message?.includes('rate limit')) {
-        return res.status(500).json({ 
-          error: 'Rate limit exceeded',
-          response: 'Bobby is being used too frequently. Please wait a moment and try again.'
-        });
-      }
-      
-      if (geminiError.code === 'ECONNREFUSED' || geminiError.code === 'ETIMEDOUT') {
-        return res.status(500).json({ 
-          error: 'Connection error',
-          response: 'Bobby cannot connect to the AI service. Please check your internet connection and try again.'
-        });
-      }
-      
-      // Return more detailed error for debugging
-      const errorMessage = geminiError.message || 'Unknown error';
-      return res.status(500).json({ 
-        error: 'AI service error',
-        response: `Sorry, I encountered an error: ${errorMessage}. Please try again in a moment.`,
-        details: process.env.NODE_ENV === 'development' ? geminiError.message : undefined
-      });
     }
 
   } catch (error) {
@@ -922,6 +939,7 @@ Important guidelines:
 // Bobby AI Health Check endpoint - test API configuration
 // Bobby AI Health Check endpoint - test Gemini API configuration
 // Bobby AI Health Check endpoint - test Gemini API configuration
+// Bobby AI Health Check endpoint
 app.get('/api/bobby/health', async (req, res) => {
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
@@ -930,12 +948,10 @@ app.get('/api/bobby/health', async (req, res) => {
     const status = {
       gemini: {
         configured: !!GEMINI_API_KEY && GEMINI_API_KEY !== '' && GEMINI_API_KEY !== 'your_gemini_api_key_here',
-        keyLength: GEMINI_API_KEY ? GEMINI_API_KEY.length : 0,
-        keyPrefix: GEMINI_API_KEY ? GEMINI_API_KEY.substring(0, 8) + '...' : 'not set'
+        keyLength: GEMINI_API_KEY ? GEMINI_API_KEY.length : 0
       },
       tavily: {
-        configured: !!TAVILY_API_KEY && TAVILY_API_KEY !== '' && TAVILY_API_KEY !== 'your_tavily_api_key_here',
-        keyLength: TAVILY_API_KEY ? TAVILY_API_KEY.length : 0
+        configured: !!TAVILY_API_KEY && TAVILY_API_KEY !== '' && TAVILY_API_KEY !== 'your_tavily_api_key_here'
       }
     };
     
@@ -944,16 +960,14 @@ app.get('/api/bobby/health', async (req, res) => {
       try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // FIXED MODEL NAME
         
-        const result = await model.generateContent("Say 'Hello' in one word");
-        await result.response;
+        // List available models instead of testing one specific model
+        const models = await genAI.listModels();
         status.gemini.working = true;
+        status.gemini.availableModels = models.map(m => m.name);
       } catch (testError) {
         status.gemini.working = false;
-        status.gemini.error = testError.message?.includes('API_KEY_INVALID') ? 'Invalid API key' : 
-                             testError.message?.includes('quota') ? 'Quota exceeded' :
-                             testError.message;
+        status.gemini.error = testError.message;
       }
     }
     
