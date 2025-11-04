@@ -19,6 +19,9 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
+// ADD THIS LINE TO FIX THE RATE LIMIT PROXY ISSUE
+app.set('trust proxy', 1);
+
 // Discord webhook configuration
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const DISCORD_GUILD_ID = '1426102941970071634';
@@ -657,7 +660,6 @@ app.get('/api/contact', async (req, res) => {
 });
 
 // Bobby AI Chat endpoint - Gemini version
-// Bobby AI Chat endpoint - Gemini version
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
@@ -793,74 +795,26 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Use the correct Gemini model names - FIXED
-    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-1.5-flash";
-    console.log('Using Gemini model:', modelName);
-    
-    try {
-      const model = genAI.getGenerativeModel({ 
-        model: modelName,
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 2048,
-        }
-      });
+    // Try different Gemini model names
+    const modelNames = [
+      "gemini-1.5-flash-latest",  // Most likely correct name
+      "gemini-1.0-pro-latest",    // Fallback
+      "gemini-pro",               // Another fallback
+      "models/gemini-1.5-flash-latest" // Full path format
+    ];
 
-      let result;
-      
-      if (imageBase64) {
-        // Handle image analysis with Gemini
-        console.log('Sending image request to Gemini...');
-        
-        const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image and provide detailed help."}\n\nPlease examine the image carefully and provide helpful assistance with this homework.`;
-        
-        result = await model.generateContent([
-          promptWithImage,
-          {
-            inlineData: {
-              data: imageBase64,
-              mimeType: imageMimeType
-            }
-          }
-        ]);
-      } else {
-        // Text-only conversation
-        console.log('Sending text request to Gemini...');
-        const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt}`;
-        
-        result = await model.generateContent(fullPrompt);
-      }
+    let lastError = null;
 
-      const response = await result.response;
-      let aiResponse = response.text();
-
-      // Add research citations if available
-      if (researchResults && researchResults.length > 0) {
-        aiResponse += '\n\n📚 Sources:\n';
-        researchResults.slice(0, 3).forEach((result, index) => {
-          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
-        });
-      }
-
-      console.log('Successfully generated response from Gemini');
-      res.json({ 
-        response: aiResponse,
-        researchUsed: !!researchResults
-      });
-
-    } catch (geminiError) {
-      console.error('Gemini API error:', geminiError);
-      
-      // Try alternative model names if the first one fails
+    for (const modelName of modelNames) {
       try {
-        console.log('Trying alternative model names...');
-        const alternativeModelName = "gemini-pro-vision";
+        console.log(`Trying Gemini model: ${modelName}`);
+        
         const model = genAI.getGenerativeModel({ 
-          model: alternativeModelName,
+          model: modelName,
           generationConfig: {
             temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
             maxOutputTokens: 2048,
           }
         });
@@ -868,7 +822,9 @@ Important guidelines:
         let result;
         
         if (imageBase64) {
-          const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image."}`;
+          // Handle image analysis with Gemini
+          const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image and provide detailed help."}\n\nPlease examine the image carefully and provide helpful assistance with this homework.`;
+          
           result = await model.generateContent([
             promptWithImage,
             {
@@ -879,6 +835,7 @@ Important guidelines:
             }
           ]);
         } else {
+          // Text-only conversation
           const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt}`;
           result = await model.generateContent(fullPrompt);
         }
@@ -886,6 +843,7 @@ Important guidelines:
         const response = await result.response;
         let aiResponse = response.text();
 
+        // Add research citations if available
         if (researchResults && researchResults.length > 0) {
           aiResponse += '\n\n📚 Sources:\n';
           researchResults.slice(0, 3).forEach((result, index) => {
@@ -893,29 +851,25 @@ Important guidelines:
           });
         }
 
-        console.log('Successfully generated response from Gemini with alternative model');
-        res.json({ 
+        console.log(`Successfully generated response from Gemini using model: ${modelName}`);
+        return res.json({ 
           response: aiResponse,
           researchUsed: !!researchResults
         });
 
-      } catch (secondError) {
-        console.error('Second Gemini API attempt failed:', secondError);
-        
-        // Final fallback - list available models
-        try {
-          const availableModels = await genAI.listModels();
-          console.log('Available models:', availableModels);
-        } catch (modelError) {
-          console.error('Could not list models:', modelError);
-        }
-
-        return res.status(500).json({ 
-          error: 'Model not available',
-          response: 'Sorry, the AI service is currently unavailable. Please try again later or contact support.'
-        });
+      } catch (error) {
+        console.log(`Model ${modelName} failed:`, error.message);
+        lastError = error;
+        continue; // Try next model
       }
     }
+
+    // If all models failed
+    console.error('All Gemini models failed:', lastError);
+    return res.status(500).json({ 
+      error: 'All model attempts failed',
+      response: 'Sorry, the AI service is currently unavailable. Please check that your GEMINI_API_KEY is valid and has access to the required models.'
+    });
 
   } catch (error) {
     console.error('Chat endpoint general error:', error);
@@ -937,8 +891,6 @@ Important guidelines:
 });
 
 // Bobby AI Health Check endpoint - test API configuration
-// Bobby AI Health Check endpoint - test Gemini API configuration
-// Bobby AI Health Check endpoint - test Gemini API configuration
 // Bobby AI Health Check endpoint
 app.get('/api/bobby/health', async (req, res) => {
   try {
@@ -955,16 +907,19 @@ app.get('/api/bobby/health', async (req, res) => {
       }
     };
     
-    // Try to verify Gemini API key if configured
+    // Test Gemini API with a simple request
     if (status.gemini.configured) {
       try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
         
-        // List available models instead of testing one specific model
-        const models = await genAI.listModels();
+        // Try the most common model name
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const result = await model.generateContent("Say 'Hello' in one word");
+        await result.response;
+        
         status.gemini.working = true;
-        status.gemini.availableModels = models.map(m => m.name);
+        status.gemini.testModel = "gemini-1.5-flash-latest";
       } catch (testError) {
         status.gemini.working = false;
         status.gemini.error = testError.message;
