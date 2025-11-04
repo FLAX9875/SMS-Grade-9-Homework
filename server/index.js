@@ -657,30 +657,70 @@ app.get('/api/contact', async (req, res) => {
 });
 
 // Bobby AI Chat endpoint - Gemini version
+// Bobby AI Chat endpoint - Gemini version
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
     const imageFile = req.file;
 
-    if (!message && !imageFile) {
+    // Allow empty message if image is provided
+    if ((!message || typeof message !== 'string' || message.trim().length === 0) && !imageFile) {
       return res.status(400).json({ error: 'Message or image is required' });
     }
 
-    // Check if Gemini API key is available
+    // Check if API keys are configured
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
+    const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
+
+    // Enhanced API key validation
     if (!GEMINI_API_KEY || GEMINI_API_KEY === '' || GEMINI_API_KEY === 'your_gemini_api_key_here') {
-      console.error('GEMINI_API_KEY is not configured');
+      console.error('GEMINI_API_KEY is missing or not set properly');
       return res.status(500).json({ 
-        error: 'AI service not configured',
-        response: 'Sorry, Bobby is not configured yet. Please set GEMINI_API_KEY in environment variables.'
+        error: 'AI service not configured. Please set GEMINI_API_KEY in environment variables.',
+        response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
       });
     }
+
+    // Log that API key exists (but don't log the actual key)
+    console.log('Bobby chat request received. GEMINI_API_KEY exists:', !!GEMINI_API_KEY, 'Length:', GEMINI_API_KEY.length, 'Has image:', !!imageFile);
 
     // Initialize Google Generative AI
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-    // Determine activity status for research
+    // Handle image if uploaded
+    let imageBase64 = null;
+    let imageMimeType = 'image/jpeg';
+    if (imageFile) {
+      try {
+        // Convert image to base64 for Gemini Vision API
+        const imageBuffer = fs.readFileSync(imageFile.path);
+        imageBase64 = imageBuffer.toString('base64');
+        imageMimeType = imageFile.mimetype || 'image/jpeg';
+        
+        console.log('Image processed:', {
+          size: imageBuffer.length,
+          mimeType: imageMimeType,
+          base64Length: imageBase64.length
+        });
+        
+        // Clean up uploaded file after reading
+        try {
+          fs.unlinkSync(imageFile.path);
+          console.log('Temp image file cleaned up');
+        } catch (err) {
+          console.error('Error deleting temp file:', err);
+        }
+      } catch (imageError) {
+        console.error('Error processing image:', imageError);
+        return res.status(500).json({ 
+          error: 'Image processing failed',
+          response: 'Sorry, I had trouble reading the image. Please try again with a different image.'
+        });
+      }
+    }
+
+    // Determine if the user is asking for web research
     const messageLower = (message || '').toLowerCase();
     const needsResearch = messageLower.includes('search') || 
                          messageLower.includes('research') ||
@@ -692,14 +732,14 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
 
     let researchResults = null;
     
-    // Perform web search if needed using Tavily (keep your existing Tavily code)
-    if (needsResearch && process.env.TAVILY_API_KEY) {
+    // Perform web search if needed and API key is available
+    if (needsResearch && TAVILY_API_KEY) {
       try {
         const searchQuery = (message || '').replace(/search|research|find|look up/gi, '').trim() || (message || '');
         const searchResponse = await axios.post(
           'https://api.tavily.com/search',
           {
-            api_key: process.env.TAVILY_API_KEY,
+            api_key: TAVILY_API_KEY,
             query: searchQuery || message || 'homework help',
             search_depth: 'basic',
             max_results: 5
@@ -718,6 +758,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
             url: result.url,
             content: result.content
           }));
+          console.log('Research results found:', researchResults.length);
         }
       } catch (searchError) {
         console.error('Web search error:', searchError);
@@ -729,7 +770,16 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
     let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant for Grade 9 students. 
 You help students with their homework, explain concepts clearly, answer questions, and provide educational support.
 Be encouraging, clear, and age-appropriate in your responses.
-${imageFile ? 'You can analyze images of homework questions and provide detailed explanations and solutions.' : ''}`;
+
+Important guidelines:
+- If analyzing an image of homework, carefully examine the problem and provide step-by-step explanations
+- Don't just give answers - explain the reasoning and methodology
+- Use simple language appropriate for Grade 9 students
+- Be supportive and encouraging
+- If you're unsure about something, admit it and suggest how to find the answer
+- For math problems, show your work and reasoning
+- For science questions, explain the concepts clearly
+- For history or literature, provide context and analysis`;
 
     let userPrompt = message || '';
 
@@ -746,7 +796,7 @@ ${imageFile ? 'You can analyze images of homework questions and provide detailed
     }
 
     // Choose the right Gemini model
-    const modelName = imageFile ? "gemini-1.5-flash" : "gemini-1.5-flash";
+    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-1.5-flash";
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
@@ -754,88 +804,115 @@ ${imageFile ? 'You can analyze images of homework questions and provide detailed
         topK: 40,
         topP: 0.95,
         maxOutputTokens: 2048,
-      }
+      },
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        }
+      ]
     });
 
-    let contents = [];
-    
-    if (imageFile) {
-      // Handle image analysis
-      const imageBuffer = fs.readFileSync(imageFile.path);
-      const base64Image = imageBuffer.toString('base64');
-      const mimeType = imageFile.mimetype || 'image/jpeg';
+    try {
+      let result;
       
-      contents = [
-        {
-          parts: [
-            { text: systemPrompt + "\n\n" + (userPrompt || 'Please analyze this homework image and help me with it.') },
-            {
-              inlineData: {
-                data: base64Image,
-                mimeType: mimeType
-              }
+      if (imageBase64) {
+        // Handle image analysis with Gemini
+        console.log('Sending image request to Gemini...');
+        
+        const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image and provide detailed help."}\n\nPlease examine the image carefully and provide helpful assistance with this homework.`;
+        
+        result = await model.generateContent([
+          promptWithImage,
+          {
+            inlineData: {
+              data: imageBase64,
+              mimeType: imageMimeType
             }
-          ]
-        }
-      ];
-    } else {
-      // Text-only conversation
-      contents = [
-        {
-          parts: [
-            { text: systemPrompt + "\n\n" + userPrompt }
-          ]
-        }
-      ];
-    }
+          }
+        ]);
+      } else {
+        // Text-only conversation
+        console.log('Sending text request to Gemini...');
+        const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt}`;
+        
+        result = await model.generateContent(fullPrompt);
+      }
 
-    // Generate content with Gemini
-    const result = await model.generateContent({
-      contents: contents
-    });
+      const response = await result.response;
+      let aiResponse = response.text();
 
-    const response = await result.response;
-    let aiResponse = response.text();
+      // Add research citations if available
+      if (researchResults && researchResults.length > 0) {
+        aiResponse += '\n\n📚 Sources:\n';
+        researchResults.slice(0, 3).forEach((result, index) => {
+          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
+        });
+      }
 
-    // Add research citations if available
-    if (researchResults && researchResults.length > 0) {
-      aiResponse += '\n\n📚 Sources:\n';
-      researchResults.slice(0, 3).forEach((result, index) => {
-        aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
+      console.log('Successfully generated response from Gemini');
+      res.json({ 
+        response: aiResponse,
+        researchUsed: !!researchResults
+      });
+
+    } catch (geminiError) {
+      console.error('Gemini API error:', {
+        message: geminiError.message,
+        status: geminiError.response?.status,
+        data: geminiError.response?.data
+      });
+      
+      // Enhanced error handling with detailed messages
+      if (geminiError.message?.includes('API_KEY_INVALID') || geminiError.message?.includes('API key not valid')) {
+        return res.status(500).json({ 
+          error: 'Invalid API key',
+          response: 'Sorry, Bobby is not properly configured. Please check that your GEMINI_API_KEY is correct in Render environment variables.'
+        });
+      }
+      
+      if (geminiError.message?.includes('quota') || geminiError.message?.includes('rate limit')) {
+        return res.status(500).json({ 
+          error: 'Rate limit exceeded',
+          response: 'Bobby is being used too frequently. Please wait a moment and try again.'
+        });
+      }
+      
+      if (geminiError.code === 'ECONNREFUSED' || geminiError.code === 'ETIMEDOUT') {
+        return res.status(500).json({ 
+          error: 'Connection error',
+          response: 'Bobby cannot connect to the AI service. Please check your internet connection and try again.'
+        });
+      }
+      
+      // Return more detailed error for debugging
+      const errorMessage = geminiError.message || 'Unknown error';
+      return res.status(500).json({ 
+        error: 'AI service error',
+        response: `Sorry, I encountered an error: ${errorMessage}. Please try again in a moment.`,
+        details: process.env.NODE_ENV === 'development' ? geminiError.message : undefined
       });
     }
 
-    // Clean up uploaded file
-    if (imageFile && fs.existsSync(imageFile.path)) {
-      fs.unlinkSync(imageFile.path);
-    }
-
-    res.json({ 
-      response: aiResponse,
-      researchUsed: !!researchResults
-    });
-
   } catch (error) {
-    console.error('Chat endpoint error:', error);
+    console.error('Chat endpoint general error:', error);
     
     // Clean up uploaded file if there was an error
     if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
-    let errorContent = 'Sorry, I encountered an error. Please make sure the AI service is configured correctly.';
-    
-    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('API key not valid')) {
-      errorContent = 'Server error. Please check that the GEMINI_API_KEY is set correctly in your Render environment variables.';
-    } else if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
-      errorContent = 'Too many requests. Please wait a moment and try again.';
-    } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      errorContent = 'Cannot connect to the AI service. Please check your internet connection and try again.';
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        console.error('Error cleaning up temp file:', err);
+      }
     }
     
     res.status(500).json({ 
       error: error.message,
-      response: errorContent
+      response: 'Sorry, I encountered an unexpected error processing your request. Please try again.'
     });
   }
 });
