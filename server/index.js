@@ -660,6 +660,7 @@ app.get('/api/contact', async (req, res) => {
 });
 
 // Bobby AI Chat endpoint - Gemini version
+// Bobby AI Chat endpoint - Gemini version (Updated for latest API)
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
@@ -795,29 +796,44 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Try different Gemini model names
-    const modelNames = [
-      "gemini-1.5-flash-latest",  // Most likely correct name
-      "gemini-1.0-pro-latest",    // Fallback
-      "gemini-pro",               // Another fallback
-      "models/gemini-1.5-flash-latest" // Full path format
+    // Try different approaches with the Gemini API
+    const approaches = [
+      // Approach 1: Try with gemini-pro (most common)
+      { model: "gemini-pro", method: "standard" },
+      // Approach 2: Try with vision model for images
+      { model: "gemini-pro-vision", method: "vision" },
+      // Approach 3: Try the latest default model
+      { model: null, method: "default" }
     ];
 
     let lastError = null;
 
-    for (const modelName of modelNames) {
+    for (const approach of approaches) {
       try {
-        console.log(`Trying Gemini model: ${modelName}`);
+        console.log(`Trying approach: ${approach.model || 'default model'}`);
         
-        const model = genAI.getGenerativeModel({ 
-          model: modelName,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          }
-        });
+        let model;
+        if (approach.model) {
+          model = genAI.getGenerativeModel({ 
+            model: approach.model,
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          });
+        } else {
+          // Use default model
+          model = genAI.getGenerativeModel({
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          });
+        }
 
         let result;
         
@@ -851,24 +867,72 @@ Important guidelines:
           });
         }
 
-        console.log(`Successfully generated response from Gemini using model: ${modelName}`);
+        console.log(`Successfully generated response from Gemini using approach: ${approach.model || 'default'}`);
         return res.json({ 
           response: aiResponse,
           researchUsed: !!researchResults
         });
 
       } catch (error) {
-        console.log(`Model ${modelName} failed:`, error.message);
+        console.log(`Approach ${approach.model || 'default'} failed:`, error.message);
         lastError = error;
-        continue; // Try next model
+        continue; // Try next approach
       }
     }
 
-    // If all models failed
-    console.error('All Gemini models failed:', lastError);
+    // If all approaches failed, try a direct API call as last resort
+    try {
+      console.log('Trying direct API call as last resort...');
+      
+      const apiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent';
+      
+      const requestBody = {
+        contents: [{
+          parts: [{
+            text: `${systemPrompt}\n\nUser's question: ${userPrompt}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2048,
+        }
+      };
+
+      const response = await axios.post(
+        `${apiUrl}?key=${GEMINI_API_KEY}`,
+        requestBody,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      let aiResponse = response.data.candidates[0].content.parts[0].text;
+
+      if (researchResults && researchResults.length > 0) {
+        aiResponse += '\n\n📚 Sources:\n';
+        researchResults.slice(0, 3).forEach((result, index) => {
+          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
+        });
+      }
+
+      console.log('Successfully generated response using direct API call');
+      return res.json({ 
+        response: aiResponse,
+        researchUsed: !!researchResults
+      });
+
+    } catch (directError) {
+      console.error('Direct API call also failed:', directError.message);
+    }
+
+    // If everything failed
+    console.error('All Gemini approaches failed');
     return res.status(500).json({ 
-      error: 'All model attempts failed',
-      response: 'Sorry, the AI service is currently unavailable. Please check that your GEMINI_API_KEY is valid and has access to the required models.'
+      error: 'All API approaches failed',
+      response: 'Sorry, the AI service is currently unavailable. This might be due to an outdated API version or invalid API key. Please check your GEMINI_API_KEY and try again later.'
     });
 
   } catch (error) {
@@ -892,6 +956,7 @@ Important guidelines:
 
 // Bobby AI Health Check endpoint - test API configuration
 // Bobby AI Health Check endpoint
+// Bobby AI Health Check endpoint
 app.get('/api/bobby/health', async (req, res) => {
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
@@ -907,22 +972,35 @@ app.get('/api/bobby/health', async (req, res) => {
       }
     };
     
-    // Test Gemini API with a simple request
+    // Test Gemini API with a direct call
     if (status.gemini.configured) {
       try {
-        const { GoogleGenerativeAI } = require('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        
-        // Try the most common model name
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const result = await model.generateContent("Say 'Hello' in one word");
-        await result.response;
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            contents: [{
+              parts: [{
+                text: "Say 'Hello' in one word"
+              }]
+            }],
+            generationConfig: {
+              maxOutputTokens: 5,
+            }
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          }
+        );
         
         status.gemini.working = true;
-        status.gemini.testModel = "gemini-1.5-flash-latest";
+        status.gemini.apiVersion = "v1";
       } catch (testError) {
         status.gemini.working = false;
         status.gemini.error = testError.message;
+        status.gemini.apiVersion = "v1 (test failed)";
       }
     }
     
