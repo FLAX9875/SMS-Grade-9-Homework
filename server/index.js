@@ -921,6 +921,7 @@ Important guidelines:
 
 // Bobby AI Health Check endpoint - test API configuration
 // Bobby AI Health Check endpoint - test Gemini API configuration
+// Bobby AI Health Check endpoint - test Gemini API configuration
 app.get('/api/bobby/health', async (req, res) => {
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
@@ -943,7 +944,7 @@ app.get('/api/bobby/health', async (req, res) => {
       try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // FIXED MODEL NAME
         
         const result = await model.generateContent("Say 'Hello' in one word");
         await result.response;
