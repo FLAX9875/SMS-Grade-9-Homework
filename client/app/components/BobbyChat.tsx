@@ -243,7 +243,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
         } else if (error.response?.data?.error) {
           errorContent = `Error: ${error.response.data.error}`
         } else if (error.response?.status === 500) {
-          errorContent = 'Server error. Please check that the GROQ_API_KEY is set correctly in your Render environment variables.'
+          errorContent = 'Server error. Please check that the GEMINI_API_KEY is set correctly in your Render environment variables.'
         } else if (error.response?.status === 429) {
           errorContent = 'Too many requests. Please wait a moment and try again.'
         } else if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
