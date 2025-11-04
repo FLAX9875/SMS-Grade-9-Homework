@@ -2,6 +2,8 @@
 // This file should NOT import discord.js
 console.log('Starting Homework Tracker Server...');
 
+
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -654,51 +656,31 @@ app.get('/api/contact', async (req, res) => {
   }
 });
 
-// Bobby AI Chat endpoint - Debug mode
+// Bobby AI Chat endpoint - Gemini version
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
     const imageFile = req.file;
-    
-    // Allow empty message if image is provided
-    if ((!message || typeof message !== 'string' || message.trim().length === 0) && !imageFile) {
+
+    if (!message && !imageFile) {
       return res.status(400).json({ error: 'Message or image is required' });
     }
 
-    // Check if API keys are configured
-    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
-    const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
-
-    // Enhanced API key validation
-    if (!GROQ_API_KEY || GROQ_API_KEY === '' || GROQ_API_KEY === 'your_groq_api_key_here') {
-      console.error('GROQ_API_KEY is missing or not set properly');
+    // Check if Gemini API key is available
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === '' || GEMINI_API_KEY === 'your_gemini_api_key_here') {
+      console.error('GEMINI_API_KEY is not configured');
       return res.status(500).json({ 
-        error: 'AI service not configured. Please set GROQ_API_KEY in environment variables.',
-        response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
+        error: 'AI service not configured',
+        response: 'Sorry, Bobby is not configured yet. Please set GEMINI_API_KEY in environment variables.'
       });
     }
 
-    // Log that API key exists (but don't log the actual key)
-    console.log('Bobby chat request received. GROQ_API_KEY exists:', !!GROQ_API_KEY, 'Length:', GROQ_API_KEY.length);
+    // Initialize Google Generative AI
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-    // Handle image if uploaded
-    let imageBase64 = null;
-    let imageMimeType = 'image/jpeg';
-    if (imageFile) {
-      // Convert image to base64 for Groq Vision API
-      const imageBuffer = fs.readFileSync(imageFile.path);
-      imageBase64 = imageBuffer.toString('base64');
-      imageMimeType = imageFile.mimetype || 'image/jpeg';
-      
-      // Clean up uploaded file after reading
-      try {
-        fs.unlinkSync(imageFile.path);
-      } catch (err) {
-        console.error('Error deleting temp file:', err);
-      }
-    }
-
-    // Determine if the user is asking for web research
+    // Determine activity status for research
     const messageLower = (message || '').toLowerCase();
     const needsResearch = messageLower.includes('search') || 
                          messageLower.includes('research') ||
@@ -710,14 +692,14 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
 
     let researchResults = null;
     
-    // Perform web search if needed and API key is available
-    if (needsResearch && TAVILY_API_KEY) {
+    // Perform web search if needed using Tavily (keep your existing Tavily code)
+    if (needsResearch && process.env.TAVILY_API_KEY) {
       try {
         const searchQuery = (message || '').replace(/search|research|find|look up/gi, '').trim() || (message || '');
         const searchResponse = await axios.post(
           'https://api.tavily.com/search',
           {
-            api_key: TAVILY_API_KEY,
+            api_key: process.env.TAVILY_API_KEY,
             query: searchQuery || message || 'homework help',
             search_depth: 'basic',
             max_results: 5
@@ -747,7 +729,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
     let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant for Grade 9 students. 
 You help students with their homework, explain concepts clearly, answer questions, and provide educational support.
 Be encouraging, clear, and age-appropriate in your responses.
-${imageBase64 ? 'You can analyze images of homework questions and provide detailed explanations and solutions.' : ''}`;
+${imageFile ? 'You can analyze images of homework questions and provide detailed explanations and solutions.' : ''}`;
 
     let userPrompt = message || '';
 
@@ -763,129 +745,113 @@ ${imageBase64 ? 'You can analyze images of homework questions and provide detail
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Call Groq API (free tier with fast inference)
-    try {
-      // Prepare messages for Groq API
-      const messages = [
-        {
-          role: 'system',
-          content: systemPrompt
-        }
-      ];
+    // Choose the right Gemini model
+    const modelName = imageFile ? "gemini-1.5-flash" : "gemini-1.5-flash";
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 2048,
+      }
+    });
 
-      // Add user message with image if available
-      if (imageBase64) {
-        messages.push({
-          role: 'user',
-          content: [
+    let contents = [];
+    
+    if (imageFile) {
+      // Handle image analysis
+      const imageBuffer = fs.readFileSync(imageFile.path);
+      const base64Image = imageBuffer.toString('base64');
+      const mimeType = imageFile.mimetype || 'image/jpeg';
+      
+      contents = [
+        {
+          parts: [
+            { text: systemPrompt + "\n\n" + (userPrompt || 'Please analyze this homework image and help me with it.') },
             {
-              type: 'text',
-              text: userPrompt || 'Please analyze this homework image and help me with it.'
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${imageMimeType};base64,${imageBase64}`
+              inlineData: {
+                data: base64Image,
+                mimeType: mimeType
               }
             }
           ]
-        });
-      } else {
-        messages.push({
-          role: 'user',
-          content: userPrompt
-        });
-      }
-
-      const groqResponse = await axios.post(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          model: imageBase64 ? 'llama-3.2-90b-vision-preview' : 'llama-3.3-70b-versatile', // Use vision model for images
-          messages: messages,
-          temperature: 0.7,
-          max_tokens: 2048
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000
         }
-      );
+      ];
+    } else {
+      // Text-only conversation
+      contents = [
+        {
+          parts: [
+            { text: systemPrompt + "\n\n" + userPrompt }
+          ]
+        }
+      ];
+    }
 
-      let aiResponse = groqResponse.data.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+    // Generate content with Gemini
+    const result = await model.generateContent({
+      contents: contents
+    });
 
-      // Add research citations if available
-      if (researchResults && researchResults.length > 0) {
-        aiResponse += '\n\n📚 Sources:\n';
-        researchResults.slice(0, 3).forEach((result, index) => {
-          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
-        });
-      }
+    const response = await result.response;
+    let aiResponse = response.text();
 
-      res.json({ 
-        response: aiResponse,
-        researchUsed: !!researchResults
-      });
-    } catch (groqError) {
-      console.error('Groq API error:', {
-        status: groqError.response?.status,
-        statusText: groqError.response?.statusText,
-        message: groqError.message,
-        data: groqError.response?.data
-      });
-      
-      // Enhanced error handling with detailed messages
-      if (groqError.response?.status === 401) {
-        return res.status(500).json({ 
-          error: 'Invalid API key',
-          response: 'Sorry, Bobby is not properly configured. Please check that your GROQ_API_KEY is correct in Render environment variables.'
-        });
-      }
-      
-      if (groqError.response?.status === 429) {
-        return res.status(500).json({ 
-          error: 'Rate limit exceeded',
-          response: 'Bobby is being used too frequently. Please wait a moment and try again.'
-        });
-      }
-      
-      if (groqError.code === 'ECONNREFUSED' || groqError.code === 'ETIMEDOUT') {
-        return res.status(500).json({ 
-          error: 'Connection error',
-          response: 'Bobby cannot connect to the AI service. Please check your internet connection and try again.'
-        });
-      }
-      
-      // Return more detailed error for debugging
-      const errorMessage = groqError.response?.data?.error?.message || groqError.message || 'Unknown error';
-      return res.status(500).json({ 
-        error: 'AI service error',
-        response: `Sorry, I encountered an error: ${errorMessage}. Please try again in a moment.`,
-        details: process.env.NODE_ENV === 'development' ? groqError.message : undefined
+    // Add research citations if available
+    if (researchResults && researchResults.length > 0) {
+      aiResponse += '\n\n📚 Sources:\n';
+      researchResults.slice(0, 3).forEach((result, index) => {
+        aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
       });
     }
+
+    // Clean up uploaded file
+    if (imageFile && fs.existsSync(imageFile.path)) {
+      fs.unlinkSync(imageFile.path);
+    }
+
+    res.json({ 
+      response: aiResponse,
+      researchUsed: !!researchResults
+    });
+
   } catch (error) {
     console.error('Chat endpoint error:', error);
+    
+    // Clean up uploaded file if there was an error
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    let errorContent = 'Sorry, I encountered an error. Please make sure the AI service is configured correctly.';
+    
+    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('API key not valid')) {
+      errorContent = 'Server error. Please check that the GEMINI_API_KEY is set correctly in your Render environment variables.';
+    } else if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
+      errorContent = 'Too many requests. Please wait a moment and try again.';
+    } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      errorContent = 'Cannot connect to the AI service. Please check your internet connection and try again.';
+    }
+    
     res.status(500).json({ 
       error: error.message,
-      response: 'Sorry, I encountered an error processing your request.'
+      response: errorContent
     });
   }
 });
 
 // Bobby AI Health Check endpoint - test API configuration
+// Bobby AI Health Check endpoint - test Gemini API configuration
 app.get('/api/bobby/health', async (req, res) => {
   try {
-    const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
     const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
     
     const status = {
-      groq: {
-        configured: !!GROQ_API_KEY && GROQ_API_KEY !== '' && GROQ_API_KEY !== 'your_groq_api_key_here',
-        keyLength: GROQ_API_KEY ? GROQ_API_KEY.length : 0,
-        keyPrefix: GROQ_API_KEY ? GROQ_API_KEY.substring(0, 8) + '...' : 'not set'
+      gemini: {
+        configured: !!GEMINI_API_KEY && GEMINI_API_KEY !== '' && GEMINI_API_KEY !== 'your_gemini_api_key_here',
+        keyLength: GEMINI_API_KEY ? GEMINI_API_KEY.length : 0,
+        keyPrefix: GEMINI_API_KEY ? GEMINI_API_KEY.substring(0, 8) + '...' : 'not set'
       },
       tavily: {
         configured: !!TAVILY_API_KEY && TAVILY_API_KEY !== '' && TAVILY_API_KEY !== 'your_tavily_api_key_here',
@@ -893,30 +859,21 @@ app.get('/api/bobby/health', async (req, res) => {
       }
     };
     
-    // Try to verify Groq API key if configured
-    if (status.groq.configured) {
+    // Try to verify Gemini API key if configured
+    if (status.gemini.configured) {
       try {
-        const testResponse = await axios.post(
-          'https://api.groq.com/openai/v1/chat/completions',
-          {
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: 'Hi' }],
-            max_tokens: 5
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${GROQ_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 5000
-          }
-        );
-        status.groq.working = true;
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        const result = await model.generateContent("Say 'Hello' in one word");
+        await result.response;
+        status.gemini.working = true;
       } catch (testError) {
-        status.groq.working = false;
-        status.groq.error = testError.response?.status === 401 ? 'Invalid API key' : 
-                           testError.response?.status === 429 ? 'Rate limited' :
-                           testError.message;
+        status.gemini.working = false;
+        status.gemini.error = testError.message?.includes('API_KEY_INVALID') ? 'Invalid API key' : 
+                             testError.message?.includes('quota') ? 'Quota exceeded' :
+                             testError.message;
       }
     }
     
