@@ -795,8 +795,10 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Choose the right Gemini model
-    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-1.5-flash";
+    // Choose the correct Gemini model - FIXED MODEL NAMES
+    const modelName = imageBase64 ? "gemini-1.5-flash" : "gemini-pro";
+    console.log('Using Gemini model:', modelName);
+    
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
