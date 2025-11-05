@@ -663,10 +663,22 @@ app.get('/api/contact', async (req, res) => {
 // Bobby AI Chat endpoint - Gemini version (Updated for latest API)
 // Bobby AI Chat endpoint - Using direct Gemini API calls (Guaranteed to work)
 // Bobby AI Chat endpoint - Using correct Gemini 2.0/2.5 models
+// Bobby AI Chat endpoint - Fixed image handling
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
     const imageFile = req.file;
+
+    console.log('Bobby chat request received:', {
+      hasMessage: !!message,
+      messageLength: message?.length,
+      hasImage: !!imageFile,
+      imageFile: imageFile ? {
+        originalname: imageFile.originalname,
+        size: imageFile.size,
+        mimetype: imageFile.mimetype
+      } : null
+    });
 
     // Allow empty message if image is provided
     if ((!message || typeof message !== 'string' || message.trim().length === 0) && !imageFile) {
@@ -684,16 +696,32 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
       });
     }
 
-    console.log('Bobby chat request received. Has image:', !!imageFile);
-
     // Handle image if uploaded
     let imageBase64 = null;
     let imageMimeType = 'image/jpeg';
     if (imageFile) {
       try {
+        console.log('Processing image file:', imageFile.path);
+        
+        // Check if file exists and is readable
+        if (!fs.existsSync(imageFile.path)) {
+          throw new Error('Uploaded file not found');
+        }
+
         const imageBuffer = fs.readFileSync(imageFile.path);
+        console.log('Image buffer size:', imageBuffer.length);
+        
+        if (imageBuffer.length === 0) {
+          throw new Error('Image file is empty');
+        }
+
         imageBase64 = imageBuffer.toString('base64');
         imageMimeType = imageFile.mimetype || 'image/jpeg';
+        
+        console.log('Image processed successfully:', {
+          base64Length: imageBase64.length,
+          mimeType: imageMimeType
+        });
         
         // Clean up uploaded file
         try {
@@ -705,7 +733,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
       } catch (imageError) {
         console.error('Error processing image:', imageError);
         return res.status(500).json({ 
-          response: 'Sorry, I had trouble reading the image. Please try again with a different image.'
+          response: 'Sorry, I had trouble reading the image. Please try again with a different image format (JPEG, PNG, GIF).'
         });
       }
     }
@@ -781,7 +809,7 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Use the correct Gemini 2.0/2.5 models that are actually available
+    // Use the correct Gemini 2.0/2.5 models
     const modelNames = [
       'gemini-2.0-flash',           // Fast and versatile
       'gemini-2.0-flash-001',       // Stable version
@@ -794,7 +822,7 @@ Important guidelines:
 
     for (const modelName of modelNames) {
       try {
-        console.log(`Trying Gemini model: ${modelName}`);
+        console.log(`Trying Gemini model: ${modelName} with ${imageBase64 ? 'image' : 'text'}`);
         
         const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
         
@@ -837,6 +865,7 @@ Important guidelines:
           });
         }
 
+        console.log('Sending request to Gemini API...');
         const response = await axios.post(
           apiUrl,
           requestBody,
@@ -844,7 +873,7 @@ Important guidelines:
             headers: {
               'Content-Type': 'application/json'
             },
-            timeout: 30000
+            timeout: 45000 // Longer timeout for image processing
           }
         );
 
@@ -864,6 +893,7 @@ Important guidelines:
           });
         }
 
+        console.log('Successfully generated response from Gemini');
         return res.json({ 
           response: aiResponse,
           researchUsed: !!researchResults,
@@ -878,7 +908,11 @@ Important guidelines:
     }
 
     // If all models failed
-    console.error('All Gemini models failed. Last error:', lastError?.response?.data || lastError?.message);
+    console.error('All Gemini models failed. Last error details:', {
+      status: lastError?.response?.status,
+      statusText: lastError?.response?.statusText,
+      error: lastError?.response?.data?.error || lastError?.message
+    });
     
     return res.status(500).json({ 
       response: 'Sorry, Bobby is currently unavailable. Please try again in a few moments.'
@@ -886,19 +920,58 @@ Important guidelines:
 
   } catch (error) {
     console.error('Chat endpoint general error:', error);
+    console.error('Error stack:', error.stack);
     
     // Clean up uploaded file if there was an error
     if (req.file && fs.existsSync(req.file.path)) {
       try {
         fs.unlinkSync(req.file.path);
+        console.log('Cleaned up temp file after error');
       } catch (err) {
         console.error('Error cleaning up temp file:', err);
       }
     }
     
+    let errorMessage = 'Sorry, I encountered an unexpected error. Please try again.';
+    
+    if (error.message?.includes('File too large')) {
+      errorMessage = 'The image file is too large. Please use an image smaller than 10MB.';
+    } else if (error.message?.includes('image') || error.message?.includes('file')) {
+      errorMessage = 'There was a problem with the image upload. Please try again with a different image.';
+    }
+    
     res.status(500).json({ 
-      response: 'Sorry, I encountered an unexpected error. Please try again.'
+      response: errorMessage
     });
+  }
+});
+
+// Test endpoint for image uploads
+app.post('/api/test-upload', upload.single('image'), (req, res) => {
+  try {
+    console.log('Test upload received:', {
+      file: req.file ? {
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        path: req.file.path
+      } : 'No file',
+      body: req.body
+    });
+
+    if (req.file) {
+      // Clean up
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Upload test successful',
+      fileInfo: req.file 
+    });
+  } catch (error) {
+    console.error('Test upload error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
