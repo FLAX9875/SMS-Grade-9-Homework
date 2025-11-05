@@ -27,6 +27,13 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const DISCORD_GUILD_ID = '1426102941970071634';
 const DISCORD_CHANNEL_ID = '1427497933942685818';
 
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('Created uploads directory');
+}
+
 // Rate limiting configuration - more lenient for better user experience
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -83,9 +90,14 @@ app.use(express.static('uploads')); // Serve uploaded files
 app.use(generalLimiter); // Apply general rate limiting to all routes
 
 // Configure multer for file uploads
+// Configure multer for file uploads with better error handling
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    // Ensure directory exists
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -659,15 +671,13 @@ app.get('/api/contact', async (req, res) => {
   }
 });
 
-// Bobby AI Chat endpoint - Gemini version
-// Bobby AI Chat endpoint - Gemini version (Updated for latest API)
-// Bobby AI Chat endpoint - Using direct Gemini API calls (Guaranteed to work)
-// Bobby AI Chat endpoint - Using correct Gemini 2.0/2.5 models
-// Bobby AI Chat endpoint - Fixed image handling
+
+// Bobby AI Chat endpoint - Using Gemini 2.0/2.5 models
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
+  let imageFile = req.file;
+  
   try {
     const { message } = req.body;
-    const imageFile = req.file;
 
     console.log('Bobby chat request received:', {
       hasMessage: !!message,
@@ -682,6 +692,10 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
 
     // Allow empty message if image is provided
     if ((!message || typeof message !== 'string' || message.trim().length === 0) && !imageFile) {
+      // Clean up if no valid input
+      if (imageFile && fs.existsSync(imageFile.path)) {
+        fs.unlinkSync(imageFile.path);
+      }
       return res.status(400).json({ error: 'Message or image is required' });
     }
 
@@ -691,6 +705,10 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
 
     if (!GEMINI_API_KEY || GEMINI_API_KEY === '' || GEMINI_API_KEY === 'your_gemini_api_key_here') {
       console.error('GEMINI_API_KEY is missing or not set properly');
+      // Clean up before returning error
+      if (imageFile && fs.existsSync(imageFile.path)) {
+        fs.unlinkSync(imageFile.path);
+      }
       return res.status(500).json({ 
         response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
       });
@@ -705,7 +723,7 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
         
         // Check if file exists and is readable
         if (!fs.existsSync(imageFile.path)) {
-          throw new Error('Uploaded file not found');
+          throw new Error('Uploaded file not found at path: ' + imageFile.path);
         }
 
         const imageBuffer = fs.readFileSync(imageFile.path);
@@ -723,17 +741,14 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
           mimeType: imageMimeType
         });
         
-        // Clean up uploaded file
-        try {
-          fs.unlinkSync(imageFile.path);
-          console.log('Temp image file cleaned up');
-        } catch (err) {
-          console.error('Error deleting temp file:', err);
-        }
       } catch (imageError) {
         console.error('Error processing image:', imageError);
+        // Clean up on image processing error
+        if (imageFile && fs.existsSync(imageFile.path)) {
+          fs.unlinkSync(imageFile.path);
+        }
         return res.status(500).json({ 
-          response: 'Sorry, I had trouble reading the image. Please try again with a different image format (JPEG, PNG, GIF).'
+          response: 'Sorry, I had trouble reading the image. Please try again with a different image format (JPEG, PNG, GIF, WebP).'
         });
       }
     }
@@ -894,6 +909,13 @@ Important guidelines:
         }
 
         console.log('Successfully generated response from Gemini');
+        
+        // Final cleanup - remove uploaded file after successful processing
+        if (imageFile && fs.existsSync(imageFile.path)) {
+          fs.unlinkSync(imageFile.path);
+          console.log('Temp file cleaned up after successful response');
+        }
+        
         return res.json({ 
           response: aiResponse,
           researchUsed: !!researchResults,
@@ -914,6 +936,11 @@ Important guidelines:
       error: lastError?.response?.data?.error || lastError?.message
     });
     
+    // Clean up on failure
+    if (imageFile && fs.existsSync(imageFile.path)) {
+      fs.unlinkSync(imageFile.path);
+    }
+    
     return res.status(500).json({ 
       response: 'Sorry, Bobby is currently unavailable. Please try again in a few moments.'
     });
@@ -923,9 +950,9 @@ Important guidelines:
     console.error('Error stack:', error.stack);
     
     // Clean up uploaded file if there was an error
-    if (req.file && fs.existsSync(req.file.path)) {
+    if (imageFile && fs.existsSync(imageFile.path)) {
       try {
-        fs.unlinkSync(req.file.path);
+        fs.unlinkSync(imageFile.path);
         console.log('Cleaned up temp file after error');
       } catch (err) {
         console.error('Error cleaning up temp file:', err);
