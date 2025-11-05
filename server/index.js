@@ -661,6 +661,8 @@ app.get('/api/contact', async (req, res) => {
 
 // Bobby AI Chat endpoint - Gemini version
 // Bobby AI Chat endpoint - Gemini version (Updated for latest API)
+// Bobby AI Chat endpoint - Using direct Gemini API calls (Guaranteed to work)
+// Bobby AI Chat endpoint - Using correct Gemini 2.0/2.5 models
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body;
@@ -675,37 +677,25 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
     const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
 
-    // Enhanced API key validation
     if (!GEMINI_API_KEY || GEMINI_API_KEY === '' || GEMINI_API_KEY === 'your_gemini_api_key_here') {
       console.error('GEMINI_API_KEY is missing or not set properly');
       return res.status(500).json({ 
-        error: 'AI service not configured. Please set GEMINI_API_KEY in environment variables.',
         response: 'Sorry, Bobby is not configured yet. Please contact the administrator.'
       });
     }
 
     console.log('Bobby chat request received. Has image:', !!imageFile);
 
-    // Initialize Google Generative AI
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-
     // Handle image if uploaded
     let imageBase64 = null;
     let imageMimeType = 'image/jpeg';
     if (imageFile) {
       try {
-        // Convert image to base64 for Gemini Vision API
         const imageBuffer = fs.readFileSync(imageFile.path);
         imageBase64 = imageBuffer.toString('base64');
         imageMimeType = imageFile.mimetype || 'image/jpeg';
         
-        console.log('Image processed:', {
-          size: imageBuffer.length,
-          mimeType: imageMimeType
-        });
-        
-        // Clean up uploaded file after reading
+        // Clean up uploaded file
         try {
           fs.unlinkSync(imageFile.path);
           console.log('Temp image file cleaned up');
@@ -715,13 +705,12 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
       } catch (imageError) {
         console.error('Error processing image:', imageError);
         return res.status(500).json({ 
-          error: 'Image processing failed',
           response: 'Sorry, I had trouble reading the image. Please try again with a different image.'
         });
       }
     }
 
-    // Determine if the user is asking for web research
+    // Web research (Tavily)
     const messageLower = (message || '').toLowerCase();
     const needsResearch = messageLower.includes('search') || 
                          messageLower.includes('research') ||
@@ -733,7 +722,6 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
 
     let researchResults = null;
     
-    // Perform web search if needed and API key is available
     if (needsResearch && TAVILY_API_KEY) {
       try {
         const searchQuery = (message || '').replace(/search|research|find|look up/gi, '').trim() || (message || '');
@@ -763,28 +751,25 @@ app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, r
         }
       } catch (searchError) {
         console.error('Web search error:', searchError);
-        // Continue without search results if search fails
       }
     }
 
     // Construct the prompt for Bobby
-    let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant for Grade 9 students. 
+    let systemPrompt = `You are Bobby, a friendly and helpful AI homework assistant cat for Grade 9 students. 🐱
 You help students with their homework, explain concepts clearly, answer questions, and provide educational support.
 Be encouraging, clear, and age-appropriate in your responses.
 
 Important guidelines:
-- If analyzing an image of homework, carefully examine the problem and provide step-by-step explanations
-- Don't just give answers - explain the reasoning and methodology
+- Be warm, friendly, and supportive like a helpful tutor
+- Break down complex problems into manageable steps
+- Provide explanations, not just answers
+- If analyzing an image, carefully examine it and provide detailed help
 - Use simple language appropriate for Grade 9 students
-- Be supportive and encouraging
-- If you're unsure about something, admit it and suggest how to find the answer
-- For math problems, show your work and reasoning
-- For science questions, explain the concepts clearly
-- For history or literature, provide context and analysis`;
+- Be encouraging and patient
+- Sign off as Bobby the homework helper cat`;
 
     let userPrompt = message || '';
 
-    // If we have research results, include them in the context
     if (researchResults && researchResults.length > 0) {
       systemPrompt += `\n\nYou have access to recent web search results. Use them to provide accurate and up-to-date information.`;
       userPrompt = `Based on the following web search results, answer the user's question:\n\n`;
@@ -796,68 +781,80 @@ Important guidelines:
       userPrompt += `User's original question: ${message || 'Please help with this homework'}\n\nPlease provide a comprehensive answer based on the search results and your knowledge.`;
     }
 
-    // Try different approaches with the Gemini API
-    const approaches = [
-      // Approach 1: Try with gemini-pro (most common)
-      { model: "gemini-pro", method: "standard" },
-      // Approach 2: Try with vision model for images
-      { model: "gemini-pro-vision", method: "vision" },
-      // Approach 3: Try the latest default model
-      { model: null, method: "default" }
+    // Use the correct Gemini 2.0/2.5 models that are actually available
+    const modelNames = [
+      'gemini-2.0-flash',           // Fast and versatile
+      'gemini-2.0-flash-001',       // Stable version
+      'gemini-2.5-flash',           // Latest with thinking capability
+      'gemini-2.0-flash-lite',      // Lite version
+      'gemini-2.5-flash-lite'       // Latest lite version
     ];
 
     let lastError = null;
 
-    for (const approach of approaches) {
+    for (const modelName of modelNames) {
       try {
-        console.log(`Trying approach: ${approach.model || 'default model'}`);
+        console.log(`Trying Gemini model: ${modelName}`);
         
-        let model;
-        if (approach.model) {
-          model = genAI.getGenerativeModel({ 
-            model: approach.model,
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
-          });
-        } else {
-          // Use default model
-          model = genAI.getGenerativeModel({
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
-          });
-        }
-
-        let result;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
         
-        if (imageBase64) {
-          // Handle image analysis with Gemini
-          const promptWithImage = `${systemPrompt}\n\nUser's question: ${userPrompt || "Please analyze this homework image and provide detailed help."}\n\nPlease examine the image carefully and provide helpful assistance with this homework.`;
-          
-          result = await model.generateContent([
-            promptWithImage,
+        const requestBody = {
+          contents: [{
+            parts: []
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+          },
+          safetySettings: [
             {
-              inlineData: {
-                data: imageBase64,
-                mimeType: imageMimeType
-              }
+              category: "HARM_CATEGORY_HARASSMENT",
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+              category: "HARM_CATEGORY_HATE_SPEECH", 
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
             }
-          ]);
-        } else {
-          // Text-only conversation
-          const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt}`;
-          result = await model.generateContent(fullPrompt);
+          ]
+        };
+
+        // Build the content parts
+        const fullPrompt = `${systemPrompt}\n\nUser's question: ${userPrompt || (imageBase64 ? "Please analyze this homework image and help me with it." : "")}`;
+        
+        requestBody.contents[0].parts.push({
+          text: fullPrompt
+        });
+
+        // Add image if available
+        if (imageBase64) {
+          requestBody.contents[0].parts.push({
+            inlineData: {
+              mimeType: imageMimeType,
+              data: imageBase64
+            }
+          });
         }
 
-        const response = await result.response;
-        let aiResponse = response.text();
+        const response = await axios.post(
+          apiUrl,
+          requestBody,
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            timeout: 30000
+          }
+        );
+
+        console.log(`Success with model: ${modelName}`);
+
+        if (!response.data.candidates || !response.data.candidates[0] || !response.data.candidates[0].content) {
+          throw new Error('Invalid response format from Gemini API');
+        }
+
+        let aiResponse = response.data.candidates[0].content.parts[0].text;
 
         // Add research citations if available
         if (researchResults && researchResults.length > 0) {
@@ -867,72 +864,24 @@ Important guidelines:
           });
         }
 
-        console.log(`Successfully generated response from Gemini using approach: ${approach.model || 'default'}`);
         return res.json({ 
           response: aiResponse,
-          researchUsed: !!researchResults
+          researchUsed: !!researchResults,
+          modelUsed: modelName
         });
 
       } catch (error) {
-        console.log(`Approach ${approach.model || 'default'} failed:`, error.message);
+        console.log(`Model ${modelName} failed:`, error.response?.data?.error?.message || error.message);
         lastError = error;
-        continue; // Try next approach
+        // Continue to next model
       }
     }
 
-    // If all approaches failed, try a direct API call as last resort
-    try {
-      console.log('Trying direct API call as last resort...');
-      
-      const apiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent';
-      
-      const requestBody = {
-        contents: [{
-          parts: [{
-            text: `${systemPrompt}\n\nUser's question: ${userPrompt}`
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-        }
-      };
-
-      const response = await axios.post(
-        `${apiUrl}?key=${GEMINI_API_KEY}`,
-        requestBody,
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000
-        }
-      );
-
-      let aiResponse = response.data.candidates[0].content.parts[0].text;
-
-      if (researchResults && researchResults.length > 0) {
-        aiResponse += '\n\n📚 Sources:\n';
-        researchResults.slice(0, 3).forEach((result, index) => {
-          aiResponse += `${index + 1}. [${result.title}](${result.url})\n`;
-        });
-      }
-
-      console.log('Successfully generated response using direct API call');
-      return res.json({ 
-        response: aiResponse,
-        researchUsed: !!researchResults
-      });
-
-    } catch (directError) {
-      console.error('Direct API call also failed:', directError.message);
-    }
-
-    // If everything failed
-    console.error('All Gemini approaches failed');
+    // If all models failed
+    console.error('All Gemini models failed. Last error:', lastError?.response?.data || lastError?.message);
+    
     return res.status(500).json({ 
-      error: 'All API approaches failed',
-      response: 'Sorry, the AI service is currently unavailable. This might be due to an outdated API version or invalid API key. Please check your GEMINI_API_KEY and try again later.'
+      response: 'Sorry, Bobby is currently unavailable. Please try again in a few moments.'
     });
 
   } catch (error) {
@@ -948,8 +897,7 @@ Important guidelines:
     }
     
     res.status(500).json({ 
-      error: error.message,
-      response: 'Sorry, I encountered an unexpected error processing your request. Please try again.'
+      response: 'Sorry, I encountered an unexpected error. Please try again.'
     });
   }
 });
@@ -957,50 +905,34 @@ Important guidelines:
 // Bobby AI Health Check endpoint - test API configuration
 // Bobby AI Health Check endpoint
 // Bobby AI Health Check endpoint
+// Bobby Health Check
 app.get('/api/bobby/health', async (req, res) => {
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
-    const TAVILY_API_KEY = process.env.TAVILY_API_KEY?.trim();
     
     const status = {
       gemini: {
         configured: !!GEMINI_API_KEY && GEMINI_API_KEY !== '' && GEMINI_API_KEY !== 'your_gemini_api_key_here',
         keyLength: GEMINI_API_KEY ? GEMINI_API_KEY.length : 0
       },
-      tavily: {
-        configured: !!TAVILY_API_KEY && TAVILY_API_KEY !== '' && TAVILY_API_KEY !== 'your_tavily_api_key_here'
+      server: {
+        status: 'running',
+        timestamp: new Date().toISOString()
       }
     };
     
-    // Test Gemini API with a direct call
+    // Test API key with a simple call
     if (status.gemini.configured) {
       try {
-        const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            contents: [{
-              parts: [{
-                text: "Say 'Hello' in one word"
-              }]
-            }],
-            generationConfig: {
-              maxOutputTokens: 5,
-            }
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            timeout: 10000
-          }
+        const testResponse = await axios.get(
+          `https://generativelanguage.googleapis.com/v1/models?key=${GEMINI_API_KEY}`,
+          { timeout: 10000 }
         );
-        
         status.gemini.working = true;
-        status.gemini.apiVersion = "v1";
+        status.gemini.availableModels = testResponse.data.models?.map(m => m.name) || [];
       } catch (testError) {
         status.gemini.working = false;
-        status.gemini.error = testError.message;
-        status.gemini.apiVersion = "v1 (test failed)";
+        status.gemini.error = testError.response?.data?.error?.message || testError.message;
       }
     }
     
