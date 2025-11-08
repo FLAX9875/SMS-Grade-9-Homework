@@ -2,7 +2,7 @@
 // This file should NOT import discord.js
 console.log('Starting Homework Tracker Server...');
 
-
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -88,7 +88,6 @@ app.use(express.json());
 app.use(express.static('uploads')); // Serve uploaded files
 app.use(generalLimiter); // Apply general rate limiting to all routes
 
-// Configure multer for file uploads
 // Configure multer for file uploads with better error handling
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -124,7 +123,6 @@ const upload = multer({
 });
 
 // MongoDB connection
-// Connect to MongoDB with error handling so the process doesn't crash if DB is down
 let dbConnected = false;
 mongoose
   .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/homework-tracker')
@@ -188,6 +186,73 @@ const homeworkSchema = new mongoose.Schema({
 });
 
 const Homework = mongoose.model('Homework', homeworkSchema);
+
+// Study Links Schema
+const studyLinkSchema = new mongoose.Schema({
+  url: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    default: ''
+  },
+  addedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const StudyLink = mongoose.model('StudyLink', studyLinkSchema);
+
+// Contact Form Schema
+const contactFormSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['suggestion', 'issue'],
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  attachments: [{
+    filename: String,
+    url: String,
+    mimetype: String
+  }],
+  submittedBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'reviewed', 'resolved'],
+    default: 'pending'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
 
 const ContactForm = mongoose.model('ContactForm', contactFormSchema);
 
@@ -407,336 +472,6 @@ app.put('/api/homework/:id', async (req, res) => {
   }
 });
 
-// Keep this FIRST set of schemas (around line 193):
-// Study Guide Schema
-const studyGuideSchema = new mongoose.Schema({
-  homeworkId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Homework',
-    required: true
-  },
-  title: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  summary: {
-    type: String,
-    required: true
-  },
-  keyPoints: [{
-    type: String,
-    required: true
-  }],
-  flashcards: [{
-    question: {
-      type: String,
-      required: true
-    },
-    answer: {
-      type: String,
-      required: true
-    }
-  }],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
-});
-
-const StudyGuide = mongoose.model('StudyGuide', studyGuideSchema);
-
-// Study Session Schema
-const studySessionSchema = new mongoose.Schema({
-  studyGuideId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'StudyGuide',
-    required: true
-  },
-  userId: {
-    type: String,
-    required: true
-  },
-  flashcardsStudied: [{
-    flashcardId: mongoose.Schema.Types.ObjectId,
-    correct: Boolean,
-    timestamp: { type: Date, default: Date.now }
-  }],
-  score: {
-    type: Number,
-    default: 0
-  },
-  completed: {
-    type: Boolean,
-    default: false
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
-
-const StudySession = mongoose.model('StudySession', studySessionSchema);
-
-// DELETE everything from line 485 to line 556 (the duplicate schemas)
-
-// Generate Study Guide with AI
-app.post('/api/study/generate', strictLimiter, async (req, res) => {
-  try {
-    const { homeworkId, title, subject, description } = req.body;
-    
-    if (!homeworkId || !title) {
-      return res.status(400).json({ error: 'Homework ID and title are required' });
-    }
-
-    // Check if study guide already exists
-    const existingStudyGuide = await StudyGuide.findOne({ homeworkId });
-    if (existingStudyGuide) {
-      return res.json(existingStudyGuide);
-    }
-
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
-    if (!GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'AI service not configured' });
-    }
-
-    // Construct prompt for study guide generation
-    const studyGuidePrompt = `
-Create a comprehensive study guide for the following homework assignment:
-
-TITLE: ${title}
-SUBJECT: ${subject}
-DESCRIPTION: ${description || 'No additional description provided.'}
-
-Please generate:
-1. A concise summary (2-3 paragraphs)
-2. 5-8 key points or main concepts to remember
-3. 5-10 flashcard pairs (question and answer) covering the most important concepts
-
-Format the response as JSON:
-{
-  "summary": "concise summary here",
-  "keyPoints": ["point 1", "point 2", ...],
-  "flashcards": [
-    {"question": "question 1", "answer": "answer 1"},
-    {"question": "question 2", "answer": "answer 2"}
-  ]
-}
-
-Make the content appropriate for Grade 9 students and focus on the most important concepts.
-`;
-
-    // Use Gemini to generate study guide
-    const modelNames = [
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-001',
-      'gemini-2.5-flash'
-    ];
-
-    let studyGuideData = null;
-    let lastError = null;
-
-    for (const modelName of modelNames) {
-      try {
-        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
-        
-        const requestBody = {
-          contents: [{
-            parts: [{
-              text: studyGuidePrompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          }
-        };
-
-        const response = await axios.post(apiUrl, requestBody, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 30000
-        });
-
-        if (response.data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          const aiResponse = response.data.candidates[0].content.parts[0].text;
-          
-          // Extract JSON from response
-          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            studyGuideData = JSON.parse(jsonMatch[0]);
-            break;
-          }
-        }
-      } catch (error) {
-        console.log(`Model ${modelName} failed:`, error.message);
-        lastError = error;
-      }
-    }
-
-    if (!studyGuideData) {
-      // Fallback: create basic study guide structure
-      studyGuideData = {
-        summary: `Study guide for: ${title}. Focus on understanding the main concepts and key terminology.`,
-        keyPoints: [
-          "Review the main concepts",
-          "Practice with examples",
-          "Understand key terminology",
-          "Apply concepts to different scenarios"
-        ],
-        flashcards: [
-          {
-            question: "What is the main concept of this topic?",
-            answer: "The main concept focuses on understanding the core principles."
-          },
-          {
-            question: "Why is this topic important?",
-            answer: "It helps build foundational knowledge for more advanced concepts."
-          }
-        ]
-      };
-    }
-
-    // Create study guide in database
-    const studyGuide = new StudyGuide({
-      homeworkId,
-      title: `${title} - Study Guide`,
-      summary: studyGuideData.summary,
-      keyPoints: studyGuideData.keyPoints,
-      flashcards: studyGuideData.flashcards
-    });
-
-    await studyGuide.save();
-    res.json(studyGuide);
-
-  } catch (error) {
-    console.error('Error generating study guide:', error);
-    res.status(500).json({ error: 'Failed to generate study guide' });
-  }
-});
-
-// Get Study Guide by Homework ID
-app.get('/api/study/guide/:homeworkId', async (req, res) => {
-  try {
-    const { homeworkId } = req.params;
-    
-    const studyGuide = await StudyGuide.findOne({ homeworkId });
-    
-    if (!studyGuide) {
-      return res.status(404).json({ error: 'Study guide not found' });
-    }
-    
-    res.json(studyGuide);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get All Study Guides for User
-app.get('/api/study/guides', async (req, res) => {
-  try {
-    const studyGuides = await StudyGuide.find()
-      .populate('homeworkId', 'title subject dueDate')
-      .sort({ createdAt: -1 });
-    
-    res.json(studyGuides);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Start Study Session
-app.post('/api/study/session', async (req, res) => {
-  try {
-    const { studyGuideId, userId } = req.body;
-    
-    if (!studyGuideId || !userId) {
-      return res.status(400).json({ error: 'Study guide ID and user ID are required' });
-    }
-
-    const studySession = new StudySession({
-      studyGuideId,
-      userId
-    });
-
-    await studySession.save();
-    res.json(studySession);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update Study Session (flashcard progress)
-app.patch('/api/study/session/:sessionId', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const { flashcardId, correct } = req.body;
-    
-    const studySession = await StudySession.findById(sessionId);
-    
-    if (!studySession) {
-      return res.status(404).json({ error: 'Study session not found' });
-    }
-    
-    // Add flashcard result
-    studySession.flashcardsStudied.push({
-      flashcardId,
-      correct
-    });
-    
-    // Update score
-    if (correct) {
-      studySession.score += 1;
-    }
-    
-    await studySession.save();
-    res.json(studySession);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Complete Study Session
-app.patch('/api/study/session/:sessionId/complete', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    
-    const studySession = await StudySession.findByIdAndUpdate(
-      sessionId,
-      { completed: true },
-      { new: true }
-    );
-    
-    if (!studySession) {
-      return res.status(404).json({ error: 'Study session not found' });
-    }
-    
-    res.json(studySession);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get User Study Sessions
-app.get('/api/study/sessions/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    const studySessions = await StudySession.find({ userId })
-      .populate('studyGuideId')
-      .sort({ createdAt: -1 });
-    
-    res.json(studySessions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Personal completion route (PATCH - preferred)
 app.patch('/api/homework/:id/complete', async (req, res) => {
   try {
@@ -932,7 +667,6 @@ app.get('/api/contact', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // Bobby AI Chat endpoint - Using Gemini 2.0/2.5 models
 app.post('/api/bobby/chat', strictLimiter, upload.single('image'), async (req, res) => {
@@ -1264,10 +998,7 @@ app.post('/api/test-upload', upload.single('image'), (req, res) => {
   }
 });
 
-// Bobby AI Health Check endpoint - test API configuration
 // Bobby AI Health Check endpoint
-// Bobby AI Health Check endpoint
-// Bobby Health Check
 app.get('/api/bobby/health', async (req, res) => {
   try {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
