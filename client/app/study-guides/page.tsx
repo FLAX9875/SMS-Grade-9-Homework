@@ -50,9 +50,9 @@ export default function StudyGuidesPage() {
         const guide = response.data.response
         setStudyGuide(guide)
         
-        // Generate highlighted version with AI
+        // Generate highlighted version with AI - specifically ask for key terms to be highlighted
         const highlightResponse = await axios.post(`${API_URL}/api/bobby/chat`, {
-          message: `Please highlight the most important key terms and concepts in this study guide by adding ** around them. Keep the original text but make key terms stand out. Here is the study guide:\n\n${guide}`
+          message: `Please analyze this study guide and identify the most important key terms and concepts (NOT the numbers or section headers). Wrap ONLY the important vocabulary words and key concepts with ** on both sides. For example: "The **growing season** is important" or "**Geologic** processes shape the land". Do NOT highlight numbers, section titles, or bullet points. Only highlight actual important terms that students need to remember. Here is the study guide:\n\n${guide}`
         })
         
         if (highlightResponse.data && highlightResponse.data.response) {
@@ -198,7 +198,7 @@ STUDY RECOMMENDATIONS
     fileInputRef.current?.click()
   }
 
-  // Text-to-speech function with higher-pitched, clumsy voice
+  // Text-to-speech function with higher-pitched voice that focuses on content
   const speakImportantParts = async () => {
     if (!studyGuide) return
 
@@ -213,50 +213,64 @@ STUDY RECOMMENDATIONS
     setIsSpeaking(true)
 
     if ('speechSynthesis' in window) {
-      // Extract only headings and key sections
+      // Extract the actual content sections and key terms
       const lines = studyGuide.split('\n')
-      const importantParts = []
+      const contentSections = []
+      let currentSection = ''
       
       for (const line of lines) {
         const trimmed = line.trim()
-        // Only include headings, section titles, and numbered items
-        if (trimmed && (
-          trimmed.toUpperCase() === trimmed || // All caps lines (headings)
-          /^[A-Z][A-Za-z\s]+:/.test(trimmed) || // Lines starting with capital words followed by colon
-          /^\d+\./.test(trimmed) || // Numbered items
-          trimmed.includes('KEY') || // Lines with KEY
-          trimmed.includes('IMPORTANT') // Lines with IMPORTANT
-        )) {
-          importantParts.push(trimmed)
+        
+        // Skip empty lines and very short lines that are probably formatting
+        if (!trimmed || trimmed.length < 3) continue
+        
+        // If it's a section header, start a new section
+        if (trimmed.toUpperCase() === trimmed && trimmed.length < 100 && !trimmed.startsWith('•') && !/^\d+\./.test(trimmed)) {
+          if (currentSection) {
+            contentSections.push(currentSection)
+          }
+          currentSection = trimmed + '. '
+        } else if (/^\d+\./.test(trimmed) || trimmed.startsWith('•')) {
+          // This is a numbered or bullet point - add to current section
+          currentSection += trimmed.replace(/^\d+\.\s*/, '').replace(/^•\s*/, '') + '. '
+        } else if (currentSection && !trimmed.toUpperCase() === trimmed) {
+          // Regular content line
+          currentSection += trimmed + ' '
         }
       }
+      
+      // Add the last section
+      if (currentSection) {
+        contentSections.push(currentSection)
+      }
 
-      if (importantParts.length === 0) {
-        importantParts.push("Here are the main points from your study guide")
+      // If no sections were found, use the original content
+      if (contentSections.length === 0) {
+        contentSections.push("Here's your study guide content. " + studyGuide.substring(0, 200) + "...")
       }
 
       const speech = new SpeechSynthesisUtterance()
       
-      // Higher-pitched, clumsy/funny voice intro
-      const bobbyIntro = "Hey there! It's your study buddy Bobby! Oops, almost tripped over my own paws there! Let me, uh, try to walk you through the most important parts of your study guide. Ready? Here we go! "
-      const fullText = bobbyIntro + importantParts.join('. Next, ') + ". Whew, made it through without too many oopsies! That's the main stuff! Want me to go over anything again? Just ask!"
+      // Professional but high-pitched intro focusing on content
+      const bobbyIntro = "Hello! I'm Bobby, here to help you study. Let's go through the key concepts from your study guide. "
+      const fullText = bobbyIntro + contentSections.join(' Next section: ') + ". That covers the main topics from your study guide. Good luck with your studies!"
       
       speech.text = fullText
-      speech.rate = 1.1 // Slightly faster for energetic voice
-      speech.pitch = 1.4 // Higher pitch for funny, clumsy voice
+      speech.rate = 1.0 // Normal speed for clarity
+      speech.pitch = 2.5 // Very high pitch as requested
       speech.volume = 1
 
-      // Try to get a more playful voice
+      // Try to get a clear voice
       const voices = window.speechSynthesis.getVoices()
-      const playfulVoice = voices.find(voice => 
-        voice.name.includes('Google UK English Male') || 
+      const clearVoice = voices.find(voice => 
+        voice.name.includes('Google US English') || 
         voice.name.includes('Microsoft David') ||
         voice.name.includes('Alex') ||
-        voice.name.includes('Google US English')
+        voice.name.includes('Samantha')
       )
       
-      if (playfulVoice) {
-        speech.voice = playfulVoice
+      if (clearVoice) {
+        speech.voice = clearVoice
       }
 
       speech.onend = () => {
@@ -274,10 +288,9 @@ STUDY RECOMMENDATIONS
     }
   }
 
-  // Clean formatting by removing unwanted characters and fixing structure
+  // Clean formatting and organize with borders
   const cleanStudyGuide = (text: string) => {
     return text
-      .replace(/\*\*/g, '') // Remove all asterisks
       .replace(/#+/g, '') // Remove hash symbols
       .replace(/\* /g, '• ') // Replace asterisk bullets with proper bullets
       .replace(/- /g, '• ') // Replace dashes with proper bullets
@@ -287,50 +300,118 @@ STUDY RECOMMENDATIONS
       .join('\n')
   }
 
-  // Render study guide with clean formatting
+  // Render study guide with organized sections and borders
   const renderStudyGuide = () => {
     const cleanGuide = cleanStudyGuide(highlightedGuide || studyGuide)
+    const sections = []
+    let currentSection = []
+    let currentSectionTitle = ''
     
-    return cleanGuide.split('\n').map((line, index) => {
-      if (line.trim() === '') {
-        return <div key={index} className="h-4"></div>
+    // Split into sections based on major headings
+    const lines = cleanGuide.split('\n')
+    
+    for (const line of lines) {
+      // Detect section headers (all caps or title case with no bullets/numbers)
+      if (line.toUpperCase() === line && line.length < 100 && !line.startsWith('•') && !/^\d+\./.test(line)) {
+        // If we have a previous section, save it
+        if (currentSection.length > 0) {
+          sections.push({
+            title: currentSectionTitle,
+            content: [...currentSection]
+          })
+        }
+        // Start new section
+        currentSectionTitle = line
+        currentSection = []
+      } else {
+        currentSection.push(line)
       }
-      
-      // Style headings
-      if (line.toUpperCase() === line && line.length < 100 && !line.startsWith('•')) {
-        return (
-          <div key={index} className="text-xl font-bold text-purple-400 mb-4 mt-6 border-b border-purple-400 pb-2">
-            {line}
-          </div>
-        )
-      }
-      
-      // Style numbered items
-      if (/^\d+\./.test(line.trim())) {
-        return (
-          <div key={index} className="text-white mb-3 ml-4 leading-relaxed">
-            <span className="text-yellow-400 font-bold">{line.split('.')[0]}.</span>
-            {line.substring(line.indexOf('.') + 1)}
-          </div>
-        )
-      }
-      
-      // Style bullet points
-      if (line.trim().startsWith('•')) {
-        return (
-          <div key={index} className="text-white mb-2 ml-6 leading-relaxed flex items-start">
-            <span className="text-green-400 mr-2 mt-1">•</span>
-            <span>{line.substring(1).trim()}</span>
-          </div>
-        )
-      }
-      
-      // Regular text
-      return (
-        <div key={index} className="text-white mb-3 leading-relaxed">
-          {line}
+    }
+    
+    // Add the last section
+    if (currentSection.length > 0) {
+      sections.push({
+        title: currentSectionTitle,
+        content: [...currentSection]
+      })
+    }
+
+    // If no sections were detected, create one
+    if (sections.length === 0) {
+      sections.push({
+        title: 'STUDY GUIDE',
+        content: lines
+      })
+    }
+
+    return sections.map((section, sectionIndex) => (
+      <div key={sectionIndex} className="mb-8 pb-6 border-b border-gray-600 last:border-b-0">
+        {/* Section Header */}
+        <div className="text-2xl font-bold text-purple-400 mb-4 pb-2 border-b border-purple-400">
+          {section.title}
         </div>
-      )
+        
+        {/* Section Content */}
+        <div className="space-y-3">
+          {section.content.map((line, lineIndex) => {
+            if (line.trim() === '') {
+              return <div key={lineIndex} className="h-3"></div>
+            }
+            
+            // Style numbered items - don't highlight numbers
+            if (/^\d+\./.test(line.trim())) {
+              const numberMatch = line.match(/^(\d+\.)\s*(.*)/)
+              if (numberMatch) {
+                return (
+                  <div key={lineIndex} className="text-white mb-3 ml-4 leading-relaxed flex">
+                    <span className="text-blue-400 font-bold mr-2">{numberMatch[1]}</span>
+                    <span>{renderHighlightedText(numberMatch[2])}</span>
+                  </div>
+                )
+              }
+            }
+            
+            // Style bullet points
+            if (line.trim().startsWith('•')) {
+              const content = line.substring(1).trim()
+              return (
+                <div key={lineIndex} className="text-white mb-2 ml-6 leading-relaxed flex items-start">
+                  <span className="text-green-400 mr-2 mt-1">•</span>
+                  <span>{renderHighlightedText(content)}</span>
+                </div>
+              )
+            }
+            
+            // Regular text with potential highlights
+            return (
+              <div key={lineIndex} className="text-white mb-3 leading-relaxed">
+                {renderHighlightedText(line)}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    ))
+  }
+
+  // Helper to render text with highlighted key terms
+  const renderHighlightedText = (text: string) => {
+    if (!text.includes('**')) {
+      return text
+    }
+    
+    const parts = text.split('**')
+    return parts.map((part, index) => {
+      if (index % 2 === 1) {
+        // This is a highlighted term
+        return (
+          <span key={index} className="bg-yellow-500 text-black font-bold px-1 rounded mx-1">
+            {part}
+          </span>
+        )
+      } else {
+        return part
+      }
     })
   }
 
@@ -513,8 +594,8 @@ STUDY RECOMMENDATIONS
                     <h4 className="text-white font-semibold mb-2">Bobby the Study Cat</h4>
                     <p className="text-dark-text-secondary">
                       {isSpeaking 
-                        ? "Whoa, listen to my high-pitched voice! I'm highlighting the most important parts for you!"
-                        : "Click 'Bobby's Summary' to hear my funny high-pitched voice walk through the key points! Oops, watch out for my tail!"
+                        ? "I'm reading through the key concepts from your study guide with my high-pitched voice!"
+                        : "Click 'Bobby's Summary' to hear me explain the main topics. Key terms are highlighted in yellow for easy studying!"
                       }
                     </p>
                   </div>
