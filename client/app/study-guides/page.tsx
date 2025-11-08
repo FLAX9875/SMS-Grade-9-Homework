@@ -64,17 +64,21 @@ Here is the content:\n\n${inputText}`
         
         // Improved highlighting prompt - be more specific about what to highlight
         const highlightResponse = await axios.post(`${API_URL}/api/bobby/chat`, {
-          message: `Please analyze this study guide and identify ONLY the most important technical terms, geographic names, and key concepts that students need to memorize. Wrap ONLY these specific terms with ** on both sides. 
+          message: `Please analyze this study guide and identify ONLY the MOST CRITICAL key terms and short phrases that are absolutely essential to remember. Wrap ONLY these super important parts with ** on both sides. 
 
-IMPORTANT: Do NOT highlight section headers, numbers, bullet points, or common words. Only highlight:
-- Technical geography terms (like "growing season", "glaciation", "muskeg")
-- Region names (like "Canadian Shield", "Cordilleran Mountains")
-- Climate region names (like "Arctic", "Subarctic")
-- Scientific concepts (like "hydrography", "sedimentary")
-- Important facts and numbers that are crucial to remember
+IMPORTANT: 
+- Only highlight 2-3 words MAX per highlight
+- Focus on the core concept, not the entire definition
+- Highlight memorable short phrases, not full sentences
+- Do NOT highlight section headers, numbers, bullet points, or common words
 
-Examples of what to highlight: **growing season**, **Canadian Shield**, **Arctic climate**, **2 billion years**
-Examples of what NOT to highlight: "Key Terms", "1.", "•", "Region", "Climate"
+Examples of what to highlight: 
+- "above 5°C" instead of "temperatures are high enough above 5°C"
+- "glacial deposits" instead of "hill formed by glacial deposits"  
+- "mosses and stunted trees" instead of "poorly drained bog vegetated with mosses and stunted trees"
+- "gravel and boulders" instead of "narrow embankments of gravel and boulders"
+
+Examples of what NOT to highlight: "Key Terms", "1.", "•", "Region", "The", "and", full sentences
 
 Here is the study guide:\n\n${guide}`
         })
@@ -331,21 +335,25 @@ STUDY TIPS
         // Skip empty lines and very short lines that are probably formatting
         if (!trimmed || trimmed.length < 3) continue
         
+        // Clean the text - remove asterisks and semicolons that Bobby shouldn't say
+        const cleanLine = trimmed.replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
+        
         // If it's a section header, start a new section
         if (trimmed.toUpperCase() === trimmed && trimmed.length < 100 && !trimmed.startsWith('•') && !/^\d+\./.test(trimmed)) {
           if (currentSection) {
             contentSections.push(currentSection)
           }
-          currentSection = trimmed + '. '
+          currentSection = cleanLine + '. '
         } else if (/^\d+\./.test(trimmed) || trimmed.startsWith('•')) {
-          // This is a numbered or bullet point - add to current section
-          currentSection += trimmed.replace(/^\d+\.\s*/, '').replace(/^•\s*/, '') + '. '
+          // This is a numbered or bullet point - add to current section (cleaned)
+          const cleanContent = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•*;-]\s*/, '')
+          currentSection += cleanContent + '. '
         } else if (currentSection && trimmed.toUpperCase() !== trimmed) {
           // Regular content line that's not all uppercase (not a header)
-          currentSection += trimmed + ' '
+          currentSection += cleanLine + ' '
         } else if (currentSection) {
           // Regular content line
-          currentSection += trimmed + ' '
+          currentSection += cleanLine + ' '
         }
       }
       
@@ -354,9 +362,10 @@ STUDY TIPS
         contentSections.push(currentSection)
       }
 
-      // If no sections were found, use the original content
+      // If no sections were found, use the original content (cleaned)
       if (contentSections.length === 0) {
-        contentSections.push("Here's your study guide content. " + studyGuide.substring(0, 200) + "...")
+        const cleanContent = studyGuide.substring(0, 200).replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
+        contentSections.push("Here's your study guide content. " + cleanContent + "...")
       }
 
       const speech = new SpeechSynthesisUtterance()
