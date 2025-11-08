@@ -38,9 +38,17 @@ export default function StudyGuidesPage() {
     setIsGenerating(true)
     
     try {
-      // Simple prompt to create a comprehensive study guide
+      // Simple prompt to create a clean study guide with numbers
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
-        message: `Create a comprehensive, well-organized study guide using ALL the information provided. Keep the original definitions and descriptions intact. Organize it clearly with proper sections and include all the content exactly as provided.
+        message: `Create a comprehensive, well-organized study guide using ALL the information provided. 
+
+IMPORTANT: 
+- Use numbers 1, 2, 3, 4 instead of Roman numerals I, II, III, IV
+- Do NOT use markdown tables with | symbols
+- Format regions and climate regions as bullet points with descriptions
+- Format cause and effect as bullet points with arrows →
+- Keep all definitions and descriptions intact
+- Make it clean and easy to read
 
 Here is the content:\n\n${inputText}`
       }, {
@@ -49,8 +57,19 @@ Here is the content:\n\n${inputText}`
 
       if (response.data && response.data.response) {
         const guide = response.data.response
-        // Remove any asterisks from the guide
-        setStudyGuide(guide.replace(/\*\*/g, ''))
+        // Clean up any remaining markdown and Roman numerals
+        const cleanGuide = guide
+          .replace(/\*\*/g, '')
+          .replace(/\|/g, '')
+          .replace(/I\. /g, '1. ')
+          .replace(/II\. /g, '2. ')
+          .replace(/III\. /g, '3. ')
+          .replace(/IV\. /g, '4. ')
+          .replace(/V\. /g, '5. ')
+          .replace(/VI\. /g, '6. ')
+          .replace(/VII\. /g, '7. ')
+          .replace(/VIII\. /g, '8. ')
+        setStudyGuide(cleanGuide)
       } else {
         throw new Error('No response from AI')
       }
@@ -66,33 +85,33 @@ Here is the content:\n\n${inputText}`
 
   // Manual study guide generation as fallback
   const generateComprehensiveStudyGuide = (text: string) => {
-    return `COMPREHENSIVE STUDY GUIDE: CANADA'S GEOGRAPHY & CLIMATE
+    return `GRADE 9 CANADA STUDY GUIDE
 
-KEY TERMS & DEFINITIONS
+1. KEY TERMS & DEFINITIONS
 
 ${extractKeyTermsWithDefinitions(text)}
 
-CANADIAN REGIONS
+2. CANADIAN REGIONS
 
 ${extractRegionsWithDescriptions(text)}
 
-CLIMATE REGIONS OF CANADA
+3. CLIMATE REGIONS OF CANADA
 
 ${extractClimateRegionsWithCharacteristics(text)}
 
-SOCIAL & POPULATION FACTORS
+4. SOCIAL & POPULATION FACTORS
 
 ${extractSocialFactors(text)}
 
-HYDROGRAPHIC CONCEPTS
+5. HYDROGRAPHIC CONCEPTS
 
 ${extractHydrographicConcepts(text)}
 
-IMPORTANT FACTS TO MEMORIZE
+6. IMPORTANT FACTS TO MEMORIZE
 
 ${extractFactsToMemorize(text)}
 
-CAUSE AND EFFECT RELATIONSHIPS
+7. CAUSE AND EFFECT RELATIONSHIPS
 
 ${extractCauseAndEffect(text)}
 
@@ -119,7 +138,11 @@ STUDY TIPS
         break
       }
       if (inKeyTerms && line.trim() && !line.includes('Key Terms/Concepts')) {
-        keyTerms += `${line.trim()}\n`
+        if (line.includes(':')) {
+          keyTerms += `• ${line.trim()}\n`
+        } else if (line.trim()) {
+          keyTerms += `• ${line.trim()}\n`
+        }
       }
     }
     return keyTerms || 'No key terms extracted'
@@ -141,7 +164,7 @@ STUDY TIPS
       if (inRegions && line.includes('\t') && !line.includes('Region') && !line.includes('Description')) {
         const parts = line.split('\t').filter(part => part.trim())
         if (parts.length >= 2) {
-          regions += `${parts[0].trim()}: ${parts[1].trim()}\n`
+          regions += `• ${parts[0].trim()}: ${parts[1].trim()}\n`
         }
       }
     }
@@ -164,7 +187,7 @@ STUDY TIPS
       if (inClimates && line.includes('\t') && !line.includes('Climate Region') && !line.includes('Characteristics')) {
         const parts = line.split('\t').filter(part => part.trim())
         if (parts.length >= 2) {
-          climates += `${parts[0].trim()}: ${parts[1].trim()}\n`
+          climates += `• ${parts[0].trim()}: ${parts[1].trim()}\n`
         }
       }
     }
@@ -185,7 +208,7 @@ STUDY TIPS
         break
       }
       if (inSocial && line.trim() && !line.includes('Key Social Factors')) {
-        socialFactors += `${line.trim()}\n`
+        socialFactors += `• ${line.trim()}\n`
       }
     }
     return socialFactors || 'No social factors extracted'
@@ -205,7 +228,7 @@ STUDY TIPS
         break
       }
       if (inConcepts && line.trim() && !line.includes('Key Hydrographic Concepts')) {
-        concepts += `${line.trim()}\n`
+        concepts += `• ${line.trim()}\n`
       }
     }
     return concepts || 'No hydrographic concepts extracted'
@@ -325,6 +348,7 @@ STUDY TIPS
   const cleanStudyGuide = (text: string) => {
     return text
       .replace(/\*\*/g, '') // Remove all asterisks
+      .replace(/\|/g, '') // Remove table pipes
       .replace(/#+/g, '') // Remove hash symbols
       .replace(/\* /g, '• ') // Replace asterisk bullets with proper bullets
       .replace(/- /g, '• ') // Replace dashes with proper bullets
@@ -345,8 +369,8 @@ STUDY TIPS
     const lines = cleanGuide.split('\n')
     
     for (const line of lines) {
-      // Detect section headers (all caps or title case with no bullets/numbers)
-      if (line.toUpperCase() === line && line.length < 100 && !line.startsWith('•') && !/^\d+\./.test(line)) {
+      // Detect section headers (look for numbered sections)
+      if ((/^\d+\./.test(line) || line.toUpperCase() === line) && line.length < 100 && !line.startsWith('•') && line.length > 3) {
         // If we have a previous section, save it
         if (currentSection.length > 0) {
           sections.push({
