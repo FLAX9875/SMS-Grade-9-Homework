@@ -19,7 +19,6 @@ export default function StudyGuidesPage() {
   const [studyGuide, setStudyGuide] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [highlightedGuide, setHighlightedGuide] = useState('')
   const [isSpeaking, setIsSpeaking] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -39,19 +38,9 @@ export default function StudyGuidesPage() {
     setIsGenerating(true)
     
     try {
-      // Improved prompt to create a comprehensive study guide with actual content
+      // Simple prompt to create a comprehensive study guide
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
-        message: `Create a comprehensive, well-organized study guide using ALL the information provided. Include:
-        
-1. KEY TERMS & DEFINITIONS: List each term with its full definition
-2. REGIONS: Describe each region with its key characteristics 
-3. CLIMATE REGIONS: Detail each climate region's features
-4. SOCIAL FACTORS: Include the social and population information
-5. HYDROGRAPHIC CONCEPTS: Explain each concept thoroughly
-6. IMPORTANT FACTS: List all the memorization facts
-7. CAUSE & EFFECT: Include all the cause-effect relationships
-
-Organize it clearly with proper sections. Use the actual definitions and descriptions from the content. Don't just list terms - include the full information.
+        message: `Create a comprehensive, well-organized study guide using ALL the information provided. Keep the original definitions and descriptions intact. Organize it clearly with proper sections and include all the content exactly as provided.
 
 Here is the content:\n\n${inputText}`
       }, {
@@ -60,49 +49,22 @@ Here is the content:\n\n${inputText}`
 
       if (response.data && response.data.response) {
         const guide = response.data.response
-        setStudyGuide(guide)
-        
-        // Improved highlighting prompt - be more specific about what to highlight
-        const highlightResponse = await axios.post(`${API_URL}/api/bobby/chat`, {
-          message: `Please analyze this study guide and identify ONLY the MOST CRITICAL key terms and short phrases that are absolutely essential to remember. Wrap ONLY these super important parts with ** on both sides. 
-
-IMPORTANT: 
-- Only highlight 2-3 words MAX per highlight
-- Focus on the core concept, not the entire definition
-- Highlight memorable short phrases, not full sentences
-- Do NOT highlight section headers, numbers, bullet points, or common words
-
-Examples of what to highlight: 
-- "above 5°C" instead of "temperatures are high enough above 5°C"
-- "glacial deposits" instead of "hill formed by glacial deposits"  
-- "mosses and stunted trees" instead of "poorly drained bog vegetated with mosses and stunted trees"
-- "gravel and boulders" instead of "narrow embankments of gravel and boulders"
-
-Examples of what NOT to highlight: "Key Terms", "1.", "•", "Region", "The", "and", full sentences
-
-Here is the study guide:\n\n${guide}`
-        })
-        
-        if (highlightResponse.data && highlightResponse.data.response) {
-          setHighlightedGuide(highlightResponse.data.response)
-        } else {
-          setHighlightedGuide(guide)
-        }
+        // Remove any asterisks from the guide
+        setStudyGuide(guide.replace(/\*\*/g, ''))
       } else {
         throw new Error('No response from AI')
       }
     } catch (error) {
       console.error('Error generating study guide:', error)
-      // Fallback to manual formatting with better content extraction
+      // Fallback to manual formatting
       const formattedContent = generateComprehensiveStudyGuide(inputText)
       setStudyGuide(formattedContent)
-      setHighlightedGuide(formattedContent)
     } finally {
       setIsGenerating(false)
     }
   }
 
-  // Improved manual study guide generation as fallback
+  // Manual study guide generation as fallback
   const generateComprehensiveStudyGuide = (text: string) => {
     return `COMPREHENSIVE STUDY GUIDE: CANADA'S GEOGRAPHY & CLIMATE
 
@@ -142,7 +104,7 @@ STUDY TIPS
 • Review the social factors affecting population distribution`
   }
 
-  // Improved extraction functions that preserve definitions and context
+  // Extraction functions that preserve definitions and context
   const extractKeyTermsWithDefinitions = (text: string) => {
     const lines = text.split('\n')
     let keyTerms = ''
@@ -157,14 +119,10 @@ STUDY TIPS
         break
       }
       if (inKeyTerms && line.trim() && !line.includes('Key Terms/Concepts')) {
-        if (line.includes(':')) {
-          keyTerms += `${line.trim()}\n`
-        } else if (line.trim()) {
-          keyTerms += `${line.trim()}\n`
-        }
+        keyTerms += `${line.trim()}\n`
       }
     }
-    return keyTerms || 'Growing Season: The part of the year when temperatures are high enough (above 5°C) to allow plants to grow.\nGeologic: Pertaining to geology, the study of Earth\'s formations as recorded in rocks.\nGlaciation: Changes in landforms caused by glaciers and ice sheets.'
+    return keyTerms || 'No key terms extracted'
   }
 
   const extractRegionsWithDescriptions = (text: string) => {
@@ -187,7 +145,7 @@ STUDY TIPS
         }
       }
     }
-    return regions || 'Canadian Shield: Formed about 2 billion years ago from the collision of 7 microcontinents.\nCordilleran Mountains: Mountain system created by volcanic and earthquake activity.'
+    return regions || 'No regions extracted'
   }
 
   const extractClimateRegionsWithCharacteristics = (text: string) => {
@@ -210,7 +168,7 @@ STUDY TIPS
         }
       }
     }
-    return climates || 'Arctic: Light snowfall, high winds, low temperatures, tundra vegetation.\nSubarctic: Very cold winters with 6 months of snow, warm summers.'
+    return climates || 'No climate regions extracted'
   }
 
   const extractSocialFactors = (text: string) => {
@@ -230,7 +188,7 @@ STUDY TIPS
         socialFactors += `${line.trim()}\n`
       }
     }
-    return socialFactors || 'People in southern Canada have better access to fertile land for farming and milder weather, while northern residents rely more on mining and fishing.'
+    return socialFactors || 'No social factors extracted'
   }
 
   const extractHydrographicConcepts = (text: string) => {
@@ -250,7 +208,7 @@ STUDY TIPS
         concepts += `${line.trim()}\n`
       }
     }
-    return concepts || 'Hydrography: Understanding Canada\'s hydrography is crucial for insights into its geological history and provides opportunities for hydroelectric power, fishing, recreation, and various uses.'
+    return concepts || 'No hydrographic concepts extracted'
   }
 
   const extractFactsToMemorize = (text: string) => {
@@ -270,7 +228,7 @@ STUDY TIPS
         facts += `• ${line.trim()}\n`
       }
     }
-    return facts || '• Growing season starts at temperatures above 5°C\n• Canadian Shield formed about 2 billion years ago\n• There are 7 climate regions in Canada'
+    return facts || 'No facts extracted'
   }
 
   const extractCauseAndEffect = (text: string) => {
@@ -294,7 +252,7 @@ STUDY TIPS
         isHeader = false
       }
     }
-    return relationships || '• Collision of 7 microcontinents → Formation of the Canadian Shield\n• Glaciation and melting of ice sheets → Formation of landforms like eskers and drumlins'
+    return relationships || 'No cause and effect relationships extracted'
   }
 
   const handleCreateFlashcards = () => {
@@ -309,7 +267,7 @@ STUDY TIPS
     fileInputRef.current?.click()
   }
 
-  // Text-to-speech function with higher-pitched voice that focuses on content
+  // Text-to-speech function - clean and simple
   const speakImportantParts = async () => {
     if (!studyGuide) return
 
@@ -324,68 +282,24 @@ STUDY TIPS
     setIsSpeaking(true)
 
     if ('speechSynthesis' in window) {
-      // Extract the actual content sections and key terms
-      const lines = studyGuide.split('\n')
-      const contentSections = []
-      let currentSection = ''
+      // Clean the study guide text by removing asterisks and formatting
+      const cleanText = studyGuide.replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
       
-      for (const line of lines) {
-        const trimmed = line.trim()
-        
-        // Skip empty lines and very short lines that are probably formatting
-        if (!trimmed || trimmed.length < 3) continue
-        
-        // Clean the text - remove asterisks and semicolons that Bobby shouldn't say
-        const cleanLine = trimmed.replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
-        
-        // If it's a section header, start a new section
-        if (trimmed.toUpperCase() === trimmed && trimmed.length < 100 && !trimmed.startsWith('•') && !/^\d+\./.test(trimmed)) {
-          if (currentSection) {
-            contentSections.push(currentSection)
-          }
-          currentSection = cleanLine + '. '
-        } else if (/^\d+\./.test(trimmed) || trimmed.startsWith('•')) {
-          // This is a numbered or bullet point - add to current section (cleaned)
-          const cleanContent = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•*;-]\s*/, '')
-          currentSection += cleanContent + '. '
-        } else if (currentSection && trimmed.toUpperCase() !== trimmed) {
-          // Regular content line that's not all uppercase (not a header)
-          currentSection += cleanLine + ' '
-        } else if (currentSection) {
-          // Regular content line
-          currentSection += cleanLine + ' '
-        }
-      }
-      
-      // Add the last section
-      if (currentSection) {
-        contentSections.push(currentSection)
-      }
-
-      // If no sections were found, use the original content (cleaned)
-      if (contentSections.length === 0) {
-        const cleanContent = studyGuide.substring(0, 200).replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
-        contentSections.push("Here's your study guide content. " + cleanContent + "...")
-      }
-
       const speech = new SpeechSynthesisUtterance()
       
-      // Professional but high-pitched intro focusing on content
-      const bobbyIntro = "Hello! I'm Bobby, here to help you study. Let's go through the key concepts from your study guide. "
-      const fullText = bobbyIntro + contentSections.join(' Next section: ') + ". That covers the main topics from your study guide. Good luck with your studies!"
+      const bobbyIntro = "Hello! I'm Bobby, here to help you study. Let's go through your study guide. "
+      const contentPreview = cleanText.substring(0, 1000) + "... That covers the main topics. Good luck with your studies!"
+      const fullText = bobbyIntro + contentPreview
       
       speech.text = fullText
-      speech.rate = 1.0 // Normal speed for clarity
-      speech.pitch = 2.5 // Very high pitch as requested
+      speech.rate = 1.0
+      speech.pitch = 2.5
       speech.volume = 1
 
-      // Try to get a clear voice
       const voices = window.speechSynthesis.getVoices()
       const clearVoice = voices.find(voice => 
         voice.name.includes('Google US English') || 
-        voice.name.includes('Microsoft David') ||
-        voice.name.includes('Alex') ||
-        voice.name.includes('Samantha')
+        voice.name.includes('Microsoft David')
       )
       
       if (clearVoice) {
@@ -407,9 +321,10 @@ STUDY TIPS
     }
   }
 
-  // Clean formatting and organize with borders
+  // Clean formatting
   const cleanStudyGuide = (text: string) => {
     return text
+      .replace(/\*\*/g, '') // Remove all asterisks
       .replace(/#+/g, '') // Remove hash symbols
       .replace(/\* /g, '• ') // Replace asterisk bullets with proper bullets
       .replace(/- /g, '• ') // Replace dashes with proper bullets
@@ -421,7 +336,7 @@ STUDY TIPS
 
   // Render study guide with organized sections and borders
   const renderStudyGuide = () => {
-    const cleanGuide = cleanStudyGuide(highlightedGuide || studyGuide)
+    const cleanGuide = cleanStudyGuide(studyGuide)
     const sections = []
     let currentSection = []
     let currentSectionTitle = ''
@@ -477,14 +392,14 @@ STUDY TIPS
               return <div key={lineIndex} className="h-3"></div>
             }
             
-            // Style numbered items - don't highlight numbers
+            // Style numbered items
             if (/^\d+\./.test(line.trim())) {
               const numberMatch = line.match(/^(\d+\.)\s*(.*)/)
               if (numberMatch) {
                 return (
                   <div key={lineIndex} className="text-white mb-3 ml-4 leading-relaxed flex">
                     <span className="text-blue-400 font-bold mr-2">{numberMatch[1]}</span>
-                    <span>{renderHighlightedText(numberMatch[2])}</span>
+                    <span>{numberMatch[2]}</span>
                   </div>
                 )
               }
@@ -496,42 +411,21 @@ STUDY TIPS
               return (
                 <div key={lineIndex} className="text-white mb-2 ml-6 leading-relaxed flex items-start">
                   <span className="text-green-400 mr-2 mt-1">•</span>
-                  <span>{renderHighlightedText(content)}</span>
+                  <span>{content}</span>
                 </div>
               )
             }
             
-            // Regular text with potential highlights
+            // Regular text
             return (
               <div key={lineIndex} className="text-white mb-3 leading-relaxed">
-                {renderHighlightedText(line)}
+                {line}
               </div>
             )
           })}
         </div>
       </div>
     ))
-  }
-
-  // Helper to render text with highlighted key terms
-  const renderHighlightedText = (text: string) => {
-    if (!text.includes('**')) {
-      return text
-    }
-    
-    const parts = text.split('**')
-    return parts.map((part, index) => {
-      if (index % 2 === 1) {
-        // This is a highlighted term
-        return (
-          <span key={index} className="bg-yellow-500 text-black font-bold px-1 rounded mx-1">
-            {part}
-          </span>
-        )
-      } else {
-        return part
-      }
-    })
   }
 
   return (
@@ -713,8 +607,8 @@ STUDY TIPS
                     <h4 className="text-white font-semibold mb-2">Bobby the Study Cat</h4>
                     <p className="text-dark-text-secondary">
                       {isSpeaking 
-                        ? "I'm reading through the key concepts from your study guide with my high-pitched voice!"
-                        : "Click 'Bobby's Summary' to hear me explain the main topics. Key terms are highlighted in yellow for easy studying!"
+                        ? "I'm reading through your study guide with my high-pitched voice!"
+                        : "Click 'Bobby's Summary' to hear me read through your study guide content!"
                       }
                     </p>
                   </div>
