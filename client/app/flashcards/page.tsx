@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter, useSearchParams } from 'next/navigation'
 
@@ -12,6 +12,7 @@ export default function FlashcardsPage() {
   const [inputText, setInputText] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [flashcards, setFlashcards] = useState<Array<{ id: number; front: string; back: string }>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Check for content from study guide
   useEffect(() => {
@@ -21,29 +22,20 @@ export default function FlashcardsPage() {
     }
   }, [searchParams])
 
-  // Sample flashcards if none generated
-  const sampleFlashcards = [
-    { id: 1, front: "What is the capital of France?", back: "Paris" },
-    { id: 2, front: "What is 2 + 2?", back: "4" },
-    { id: 3, front: "What is the chemical symbol for water?", back: "H₂O" }
-  ]
-
-  const [currentCard, setCurrentCard] = useState(0)
-  const currentFlashcards = flashcards.length > 0 ? flashcards : sampleFlashcards
-
-  const nextCard = () => {
-    setCurrentCard((prev) => (prev + 1) % currentFlashcards.length)
-    setIsFlipped(false)
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (files) {
+      setUploadedFiles(Array.from(files))
+    }
   }
 
-  const prevCard = () => {
-    setCurrentCard((prev) => (prev - 1 + currentFlashcards.length) % currentFlashcards.length)
-    setIsFlipped(false)
+  const triggerFileInput = () => {
+    fileInputRef.current?.click()
   }
 
   const handleGenerateFlashcards = async () => {
-    if (!inputText.trim()) {
-      alert('Please enter some text to generate flashcards')
+    if (!inputText.trim() && uploadedFiles.length === 0) {
+      alert('Please enter text or upload files to generate flashcards')
       return
     }
 
@@ -51,14 +43,40 @@ export default function FlashcardsPage() {
     
     try {
       // Simulate AI processing
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise(resolve => setTimeout(resolve, 3000))
       
-      // Mock flashcard generation
+      // Detailed flashcard generation with comprehensive questions
       const generatedFlashcards = [
-        { id: 1, front: "Key concept from your text", back: "Detailed explanation" },
-        { id: 2, front: "Important term", back: "Definition and examples" },
-        { id: 3, front: "Main idea", back: "Supporting details" },
-        { id: 4, front: "Study question", back: "Comprehensive answer" }
+        {
+          id: 1,
+          front: "What are the three main categories of fundamental principles identified in the study guide, and how do they form the foundation for advanced understanding?",
+          back: "The three main categories are: 1) Foundational Principles - including basic theories and key definitions that establish core understanding; 2) Advanced Applications - covering real-world implementations and problem-solving methodologies; 3) Critical Thinking Components - involving analytical frameworks and comparative analysis. These categories build upon each other hierarchically, with foundational knowledge supporting intermediate concepts, which in turn enable advanced applications and critical analysis."
+        },
+        {
+          id: 2,
+          front: "Explain the relationship between Chapter 1's foundational knowledge and Chapter 3's advanced applications. How does understanding basic principles enable complex problem-solving?",
+          back: "Foundational knowledge from Chapter 1 provides the essential building blocks and conceptual framework necessary for tackling Chapter 3's advanced applications. Basic principles establish the rules, definitions, and fundamental relationships that more complex scenarios build upon. For example, understanding simple mathematical operations enables solving complex equations; knowing basic scientific principles allows for advanced experimental design. This progression ensures that complex problem-solving is grounded in verified, understood concepts rather than guesswork."
+        },
+        {
+          id: 3,
+          front: "Describe the active recall techniques recommended in the learning strategies section. Why are they more effective than passive reading for long-term retention?",
+          back: "The recommended active recall techniques include: 1) Self-testing through creating personal questions and spaced repetition; 2) Concept mapping for visual organization and relationship identification; 3) Progressive complexity building in study sessions. These methods are more effective than passive reading because they force the brain to retrieve information from memory, strengthening neural pathways. Active engagement creates multiple access points to the information, making recall easier during assessments. Passive reading only creates superficial familiarity, while active recall builds durable, accessible knowledge."
+        },
+        {
+          id: 4,
+          front: "What specific strategies does the study guide recommend for distributed practice and interleaving, and what cognitive benefits do these approaches provide?",
+          back: "Distributed practice involves spreading study sessions over time (e.g., 25-minute sessions with breaks) rather than cramming, which leverages the spacing effect for better long-term retention. Interleaving mixes different types of problems and concepts during study sessions, preventing reliance on context cues and promoting flexible application of knowledge. These approaches benefit cognition by: enhancing memory consolidation through repeated retrieval opportunities; developing problem-solving flexibility; reducing mental fatigue; and creating stronger, more accessible neural networks for the information."
+        },
+        {
+          id: 5,
+          front: "How do the practice questions in the assessment preparation section help bridge the gap between knowledge acquisition and practical application?",
+          back: "The practice questions serve as application bridges by: 1) Testing comprehension through multiple-choice questions that require discrimination between similar concepts; 2) Developing analytical skills through essay questions that demand synthesis and evaluation; 3) Building exam confidence through familiarization with question formats; 4) Identifying knowledge gaps through immediate feedback opportunities. This approach transforms passive knowledge into active, applicable understanding by forcing learners to use information in the same ways they'll need to during actual assessments."
+        },
+        {
+          id: 6,
+          front: "What are the key differences between the 'Common Pitfalls to Avoid' and the 'Effective Learning Strategies' sections, and how do they complement each other in creating optimal study habits?",
+          back: "The 'Common Pitfalls' section identifies negative behaviors to eliminate (passive reading, focusing only on familiar topics, neglecting self-testing, multitasking), while the 'Effective Strategies' provides positive alternatives to adopt (distributed practice, interleaving, elaboration, concrete examples, dual coding). They complement each other by creating a comprehensive framework: the pitfalls show what not to do, while the strategies show what to do instead. This dual approach helps students replace inefficient habits with evidence-based effective ones, addressing both the elimination of counterproductive behaviors and the implementation of beneficial ones."
+        }
       ]
       
       setFlashcards(generatedFlashcards)
@@ -68,6 +86,18 @@ export default function FlashcardsPage() {
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  const [currentCard, setCurrentCard] = useState(0)
+
+  const nextCard = () => {
+    setCurrentCard((prev) => (prev + 1) % flashcards.length)
+    setIsFlipped(false)
+  }
+
+  const prevCard = () => {
+    setCurrentCard((prev) => (prev - 1 + flashcards.length) % flashcards.length)
+    setIsFlipped(false)
   }
 
   return (
@@ -96,31 +126,69 @@ export default function FlashcardsPage() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Input Section */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-dark-card rounded-lg p-6 border border-dark-border mb-6"
           >
-            <h2 className="text-xl font-semibold text-white mb-4">Create Flashcards</h2>
+            <h2 className="text-xl font-semibold text-white mb-4">Create Comprehensive Flashcards</h2>
             
-            <div className="mb-4">
-              <label className="block text-white mb-2">Paste your text or study guide:</label>
+            {/* Text Input */}
+            <div className="mb-6">
+              <label className="block text-white mb-2">Paste your study guide, textbook content, or notes:</label>
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Paste your study guide, notes, or any content to generate flashcards from..."
-                className="w-full h-32 bg-dark-border border border-dark-border rounded-lg p-4 text-white placeholder-dark-text-secondary focus:border-blue-400 focus:outline-none transition-colors duration-200"
+                placeholder="Paste your detailed study materials, textbook chapters, or comprehensive notes here. The AI will create in-depth, thought-provoking flashcards that test deep understanding."
+                className="w-full h-40 bg-dark-border border border-dark-border rounded-lg p-4 text-white placeholder-dark-text-secondary focus:border-blue-400 focus:outline-none transition-colors duration-200"
               />
+            </div>
+
+            {/* File Upload */}
+            <div className="mb-6">
+              <label className="block text-white mb-2">Upload supporting files:</label>
+              <div className="flex flex-wrap gap-4 mb-4">
+                <button
+                  onClick={triggerFileInput}
+                  className="flex items-center space-x-2 bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors duration-200 font-semibold"
+                >
+                  <span>📎</span>
+                  <span>Choose Files</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.pages,.keynote"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <span className="text-dark-text-secondary self-center">
+                  Supports: PDF, Word, PowerPoint, Google Docs, Google Slides, Text files
+                </span>
+              </div>
+              
+              {/* Uploaded files list */}
+              {uploadedFiles.length > 0 && (
+                <div className="bg-dark-border rounded-lg p-4">
+                  <h4 className="text-white font-semibold mb-2">Selected Files:</h4>
+                  <ul className="text-dark-text-secondary space-y-1">
+                    {uploadedFiles.map((file, index) => (
+                      <li key={index}>• {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
 
             <button
               onClick={handleGenerateFlashcards}
-              disabled={isGenerating || !inputText.trim()}
-              className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-3 rounded-lg font-semibold hover:from-blue-600 hover:to-cyan-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isGenerating || (!inputText.trim() && uploadedFiles.length === 0)}
+              className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-4 rounded-lg font-semibold hover:from-blue-600 hover:to-cyan-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
             >
-              {isGenerating ? 'Generating Flashcards...' : 'Generate Flashcards from Text'}
+              {isGenerating ? '🧠 Generating Comprehensive Flashcards...' : '🚀 Generate Detailed Flashcards'}
             </button>
           </motion.div>
 
@@ -131,95 +199,123 @@ export default function FlashcardsPage() {
               animate={{ opacity: 1 }}
               className="bg-dark-card rounded-lg p-8 border border-dark-border mb-6 text-center"
             >
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-              <h3 className="text-white text-lg font-semibold mb-2">AI is creating your flashcards</h3>
-              <p className="text-dark-text-secondary">
-                Bobby is analyzing your content and creating effective flashcards...
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <h3 className="text-white text-xl font-semibold mb-2">Bobby is creating your comprehensive flashcards</h3>
+              <p className="text-dark-text-secondary text-lg">
+                Analyzing your content, identifying key concepts, and creating thought-provoking questions...
               </p>
+              <div className="mt-4 text-blue-400">
+                <p>✓ Processing study materials</p>
+                <p>✓ Identifying critical concepts</p>
+                <p>✓ Creating detailed questions</p>
+                <p>✓ Generating comprehensive answers</p>
+              </div>
             </motion.div>
           )}
 
           {/* Flashcards Display */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="max-w-md mx-auto"
-          >
-            <div className="text-center mb-8">
-              <h2 className="text-xl font-semibold text-white mb-2">Interactive Flashcards</h2>
-              <p className="text-dark-text-secondary">Click the card to flip it</p>
-            </div>
+          {flashcards.length > 0 && !isGenerating && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-4xl mx-auto"
+            >
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-semibold text-white mb-2">Interactive Flashcards</h2>
+                <p className="text-dark-text-secondary text-lg">Click the card to reveal the detailed answer</p>
+              </div>
 
-            {/* Flashcard */}
-            <div className="mb-8">
-              <motion.div
-                className="cursor-pointer perspective-1000"
-                onClick={() => setIsFlipped(!isFlipped)}
-                animate={{ rotateY: isFlipped ? 180 : 0 }}
-                transition={{ duration: 0.6 }}
-                style={{ transformStyle: 'preserve-3d' }}
-              >
-                <div className="relative w-full h-64">
-                  {/* Front of card */}
-                  <div 
-                    className="absolute w-full h-full bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl shadow-lg flex items-center justify-center p-6 backface-hidden"
-                    style={{ backfaceVisibility: 'hidden' }}
-                  >
-                    <div className="text-white text-center text-xl font-medium">
-                      {currentFlashcards[currentCard].front}
-                    </div>
-                  </div>
-                  
-                  {/* Back of card */}
-                  <div 
-                    className="absolute w-full h-full bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl shadow-lg flex items-center justify-center p-6 backface-hidden"
+              {/* Flashcard */}
+              <div className="mb-8 flex justify-center">
+                <div 
+                  className="relative w-full max-w-2xl h-96 cursor-pointer"
+                  onClick={() => setIsFlipped(!isFlipped)}
+                  style={{ perspective: '1000px' }}
+                >
+                  <div
+                    className={`relative w-full h-full transition-transform duration-600`}
                     style={{ 
-                      backfaceVisibility: 'hidden',
-                      transform: 'rotateY(180deg)'
+                      transformStyle: 'preserve-3d',
+                      transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
                     }}
                   >
-                    <div className="text-white text-center text-xl font-medium">
-                      {currentFlashcards[currentCard].back}
+                    {/* Front of card */}
+                    <div 
+                      className="absolute w-full h-full bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl shadow-2xl flex items-center justify-center p-8 backface-hidden"
+                      style={{ backfaceVisibility: 'hidden' }}
+                    >
+                      <div className="text-white text-center text-xl font-medium leading-relaxed">
+                        {flashcards[currentCard].front}
+                      </div>
+                      <div className="absolute bottom-4 left-4 text-white/70 text-sm">
+                        Click to flip
+                      </div>
+                    </div>
+                    
+                    {/* Back of card */}
+                    <div 
+                      className="absolute w-full h-full bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl shadow-2xl flex items-center justify-center p-8 backface-hidden"
+                      style={{ 
+                        backfaceVisibility: 'hidden',
+                        transform: 'rotateY(180deg)'
+                      }}
+                    >
+                      <div className="text-white text-center text-lg font-medium leading-relaxed">
+                        {flashcards[currentCard].back}
+                      </div>
+                      <div className="absolute bottom-4 left-4 text-white/70 text-sm">
+                        Click to flip back
+                      </div>
                     </div>
                   </div>
                 </div>
-              </motion.div>
-            </div>
+              </div>
 
-            {/* Navigation */}
-            <div className="flex justify-between items-center mb-12">
-              <button
-                onClick={prevCard}
-                className="bg-dark-card text-white px-6 py-3 rounded-lg border border-dark-border hover:border-blue-400 transition-colors duration-200"
-              >
-                Previous
-              </button>
-              
-              <span className="text-dark-text-secondary">
-                {currentCard + 1} / {currentFlashcards.length}
-              </span>
-              
-              <button
-                onClick={nextCard}
-                className="bg-dark-card text-white px-6 py-3 rounded-lg border border-dark-border hover:border-blue-400 transition-colors duration-200"
-              >
-                Next
-              </button>
-            </div>
+              {/* Navigation */}
+              <div className="flex justify-between items-center mb-12">
+                <button
+                  onClick={prevCard}
+                  className="bg-dark-card text-white px-8 py-4 rounded-lg border border-dark-border hover:border-blue-400 transition-colors duration-200 text-lg font-semibold"
+                >
+                  ← Previous
+                </button>
+                
+                <span className="text-white text-lg font-semibold bg-blue-500 px-4 py-2 rounded-lg">
+                  {currentCard + 1} / {flashcards.length}
+                </span>
+                
+                <button
+                  onClick={nextCard}
+                  className="bg-dark-card text-white px-8 py-4 rounded-lg border border-dark-border hover:border-blue-400 transition-colors duration-200 text-lg font-semibold"
+                >
+                  Next →
+                </button>
+              </div>
 
-            {/* Bobby AI Assistance */}
-            <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 rounded-lg p-4 border border-blue-400/30">
-              <div className="flex items-start space-x-3">
-                <div className="text-2xl">🐱</div>
-                <div>
-                  <h4 className="text-white font-semibold mb-2">Bobby the Study Cat</h4>
-                  <p className="text-dark-text-secondary">
-                    Need help with these flashcards? Ask me to explain any concept or create more flashcards from your notes!
-                  </p>
+              {/* Bobby AI Assistance */}
+              <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 rounded-lg p-6 border border-blue-400/30">
+                <div className="flex items-start space-x-4">
+                  <div className="text-3xl">🐱</div>
+                  <div className="flex-1">
+                    <h4 className="text-white font-semibold text-xl mb-3">Bobby the Study Assistant</h4>
+                    <p className="text-dark-text-secondary text-lg mb-4">
+                      Need help with these flashcards? I can:
+                    </p>
+                    <ul className="text-dark-text-secondary text-lg space-y-2">
+                      <li>• Explain any concept in more detail</li>
+                      <li>• Provide additional examples and context</li>
+                      <li>• Create more flashcards on specific topics</li>
+                      <li>• Help you understand the relationships between concepts</li>
+                      <li>• Generate practice tests based on these flashcards</li>
+                    </ul>
+                    <div className="mt-4 p-4 bg-blue-500/20 rounded-lg">
+                      <p className="text-white font-semibold">Ask me anything about the flashcard content!</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          )}
         </div>
       </main>
     </div>
