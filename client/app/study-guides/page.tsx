@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
 
@@ -18,10 +18,10 @@ export default function StudyGuidesPage() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [studyGuide, setStudyGuide] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
-  const [zoomLevel, setZoomLevel] = useState(100)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [highlightedGuide, setHighlightedGuide] = useState('')
   const [isSpeaking, setIsSpeaking] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const studyGuideRef = useRef<HTMLDivElement>(null)
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
@@ -41,20 +41,32 @@ export default function StudyGuidesPage() {
     try {
       // Use Bobby AI to generate actual study guide from the content
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
-        message: `Please create a comprehensive study guide based on this content. Use the actual terms, concepts, and information provided. Make it specific to the content, not generic. Organize it clearly with sections and bullet points. Here is the content:\n\n${inputText}`
+        message: `Please create a comprehensive study guide based on this content. Use the actual terms, concepts, and information provided. Make it specific to the content, not generic. Organize it clearly with sections and use numbers 1,2,3 instead of Roman numerals. Here is the content:\n\n${inputText}`
       }, {
         timeout: 30000
       })
 
       if (response.data && response.data.response) {
-        setStudyGuide(response.data.response)
+        const guide = response.data.response
+        setStudyGuide(guide)
+        
+        // Generate highlighted version with AI
+        const highlightResponse = await axios.post(`${API_URL}/api/bobby/chat`, {
+          message: `Please highlight the most important key terms and concepts in this study guide by adding ** around them. Keep the original text but make key terms stand out. Here is the study guide:\n\n${guide}`
+        })
+        
+        if (highlightResponse.data && highlightResponse.data.response) {
+          setHighlightedGuide(highlightResponse.data.response)
+        } else {
+          setHighlightedGuide(guide)
+        }
       } else {
         throw new Error('No response from AI')
       }
     } catch (error) {
       console.error('Error generating study guide:', error)
       // Fallback to a simple formatted version of their content
-      const formattedContent = `Study Guide: Canadian Geography & Geology
+      const formattedContent = `STUDY GUIDE: CANADIAN GEOGRAPHY & GEOLOGY
 Based on your provided content
 
 KEY TERMS & DEFINITIONS
@@ -69,17 +81,18 @@ CLIMATE REGIONS
 
 ${extractClimateRegions(inputText)}
 
-IMPORTANT FACTS & RELATIONSHIPS
+IMPORTANT FACTS
 
 ${extractFactsAndRelationships(inputText)}
 
 STUDY RECOMMENDATIONS
-- Focus on memorizing the key terms and their definitions
-- Practice identifying which characteristics belong to each region
-- Create flashcards for the climate regions and their features
-- Review the cause-and-effect relationships`
+1. Focus on memorizing the key terms and their definitions
+2. Practice identifying which characteristics belong to each region
+3. Create flashcards for the climate regions and their features
+4. Review the cause-and-effect relationships`
 
       setStudyGuide(formattedContent)
+      setHighlightedGuide(formattedContent)
     } finally {
       setIsGenerating(false)
     }
@@ -178,7 +191,6 @@ STUDY RECOMMENDATIONS
       alert('Please generate a study guide first')
       return
     }
-    // Navigate to flashcards with the study guide content
     router.push('/flashcards?content=' + encodeURIComponent(inputText))
   }
 
@@ -186,25 +198,11 @@ STUDY RECOMMENDATIONS
     fileInputRef.current?.click()
   }
 
-  // Zoom functions
-  const zoomIn = () => {
-    setZoomLevel(prev => Math.min(prev + 25, 200))
-  }
-
-  const zoomOut = () => {
-    setZoomLevel(prev => Math.max(prev - 25, 50))
-  }
-
-  const resetZoom = () => {
-    setZoomLevel(100)
-  }
-
-  // Text-to-speech function
-  const speakStudyGuide = async () => {
+  // Text-to-speech function - only reads important parts
+  const speakImportantParts = async () => {
     if (!studyGuide) return
 
     if (isSpeaking) {
-      // Stop speaking
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel()
       }
@@ -212,20 +210,53 @@ STUDY RECOMMENDATIONS
       return
     }
 
-    // Start speaking
     setIsSpeaking(true)
 
     if ('speechSynthesis' in window) {
+      // Extract only headings and key sections
+      const lines = studyGuide.split('\n')
+      const importantParts = []
+      
+      for (const line of lines) {
+        const trimmed = line.trim()
+        // Only include headings, section titles, and numbered items
+        if (trimmed && (
+          trimmed.toUpperCase() === trimmed || // All caps lines (headings)
+          /^[A-Z][A-Za-z\s]+:/.test(trimmed) || // Lines starting with capital words followed by colon
+          /^\d+\./.test(trimmed) || // Numbered items
+          trimmed.includes('KEY') || // Lines with KEY
+          trimmed.includes('IMPORTANT') // Lines with IMPORTANT
+        )) {
+          importantParts.push(trimmed)
+        }
+      }
+
+      if (importantParts.length === 0) {
+        importantParts.push("Here are the main points from your study guide")
+      }
+
       const speech = new SpeechSynthesisUtterance()
       
-      // Add Bobby's personality to the speech
-      const bobbyIntro = "Hey there! Bobby the Study Cat here! Let me read this study guide for you. Ready? Here we go! "
-      const fullText = bobbyIntro + studyGuide.replace(/\*/g, '').replace(/#/g, '') // Remove markdown symbols
+      // More playful voice settings
+      const bobbyIntro = "Hey there! It's your study buddy Bobby! Let me walk you through the most important parts of your study guide. Ready? Here we go! "
+      const fullText = bobbyIntro + importantParts.join('. Next, ') + ". And that's the main stuff! Want me to go over anything again? Just ask!"
       
       speech.text = fullText
-      speech.rate = 0.9 // Slightly slower for better comprehension
-      speech.pitch = 1.1 // Slightly higher pitch for friendly voice
+      speech.rate = 1.0 // Normal speed but enthusiastic
+      speech.pitch = 1.2 // Higher pitch for playful voice
       speech.volume = 1
+
+      // Try to get a more playful voice
+      const voices = window.speechSynthesis.getVoices()
+      const playfulVoice = voices.find(voice => 
+        voice.name.includes('Google UK English Male') || 
+        voice.name.includes('Microsoft David') ||
+        voice.name.includes('Alex')
+      )
+      
+      if (playfulVoice) {
+        speech.voice = playfulVoice
+      }
 
       speech.onend = () => {
         setIsSpeaking(false)
@@ -240,6 +271,53 @@ STUDY RECOMMENDATIONS
       alert('Text-to-speech is not supported in your browser. Try Chrome or Edge!')
       setIsSpeaking(false)
     }
+  }
+
+  // Render study guide with highlights
+  const renderStudyGuide = () => {
+    if (!highlightedGuide) return studyGuide
+
+    return highlightedGuide.split('\n').map((line, index) => {
+      // Remove all asterisks and apply custom highlighting
+      const cleanLine = line.replace(/\*\*/g, '')
+      
+      if (cleanLine.trim() === '') {
+        return <div key={index} className="h-4"></div>
+      }
+      
+      // Highlight headings and key terms
+      if (cleanLine.toUpperCase() === cleanLine && cleanLine.length < 100) {
+        // This is likely a heading
+        return (
+          <div key={index} className="text-xl font-bold text-purple-400 mb-4 mt-6 border-b border-purple-400 pb-2">
+            {cleanLine}
+          </div>
+        )
+      } else if (line.includes('**') && highlightedGuide !== studyGuide) {
+        // This has highlighted terms - extract them
+        const parts = line.split('**')
+        return (
+          <div key={index} className="text-white mb-3 leading-relaxed">
+            {parts.map((part, partIndex) => 
+              partIndex % 2 === 1 ? (
+                <span key={partIndex} className="bg-yellow-400 text-black font-bold px-1 rounded">
+                  {part}
+                </span>
+              ) : (
+                part
+              )
+            )}
+          </div>
+        )
+      } else {
+        // Regular text
+        return (
+          <div key={index} className="text-white mb-3 leading-relaxed">
+            {cleanLine}
+          </div>
+        )
+      }
+    })
   }
 
   return (
@@ -359,48 +437,20 @@ STUDY RECOMMENDATIONS
                 <h2 className="text-xl font-semibold text-white">Your Study Guide</h2>
                 
                 <div className="flex flex-wrap gap-3">
-                  {/* Zoom Controls */}
-                  <div className="flex items-center gap-2 bg-dark-border rounded-lg p-2">
-                    <button
-                      onClick={zoomOut}
-                      disabled={zoomLevel <= 50}
-                      className="text-white p-1 rounded hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                      title="Zoom Out"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                      </svg>
-                    </button>
-                    
-                    <span className="text-white text-sm font-medium min-w-12 text-center">
-                      {zoomLevel}%
-                    </span>
-                    
-                    <button
-                      onClick={zoomIn}
-                      disabled={zoomLevel >= 200}
-                      className="text-white p-1 rounded hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                      title="Zoom In"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                    
-                    <button
-                      onClick={resetZoom}
-                      className="text-white p-1 rounded hover:bg-purple-500 transition-colors duration-200"
-                      title="Reset Zoom"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </button>
-                  </div>
+                  {/* Fullscreen Button */}
+                  <button
+                    onClick={() => setIsFullscreen(true)}
+                    className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition-all duration-200"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                    </svg>
+                    Full Screen
+                  </button>
 
                   {/* Text-to-Speech Button */}
                   <button
-                    onClick={speakStudyGuide}
+                    onClick={speakImportantParts}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 ${
                       isSpeaking 
                         ? 'bg-red-500 text-white hover:bg-red-600' 
@@ -412,14 +462,14 @@ STUDY RECOMMENDATIONS
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M6 6h4v12H6zm8 0h4v12h-4z"/>
                         </svg>
-                        Stop Listening
+                        Stop Bobby
                       </>
                     ) : (
                       <>
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
                         </svg>
-                        Listen with Bobby
+                        Bobby's Summary
                       </>
                     )}
                   </button>
@@ -427,26 +477,17 @@ STUDY RECOMMENDATIONS
                   {/* Create Flashcards Button */}
                   <button
                     onClick={handleCreateFlashcards}
-                    className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-4 py-2 rounded-lg font-semibold hover:from-blue-600 hover:to-cyan-600 transition-all duration-200"
+                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:from-cyan-600 hover:to-blue-600 transition-all duration-200"
                   >
                     Create Flashcards
                   </button>
                 </div>
               </div>
               
-              {/* Study Guide Content with Zoom */}
-              <div 
-                ref={studyGuideRef}
-                className="bg-dark-border rounded-lg p-6 max-h-[600px] overflow-y-auto transition-all duration-200"
-                style={{ 
-                  fontSize: `${zoomLevel}%`,
-                  lineHeight: '1.6'
-                }}
-              >
+              {/* Study Guide Content */}
+              <div className="bg-dark-border rounded-lg p-6 max-h-[600px] overflow-y-auto">
                 <div className="prose prose-invert max-w-none">
-                  <pre className="text-white whitespace-pre-wrap font-sans text-base leading-relaxed">
-                    {studyGuide}
-                  </pre>
+                  {renderStudyGuide()}
                 </div>
               </div>
 
@@ -458,8 +499,8 @@ STUDY RECOMMENDATIONS
                     <h4 className="text-white font-semibold mb-2">Bobby the Study Cat</h4>
                     <p className="text-dark-text-secondary">
                       {isSpeaking 
-                        ? "I'm reading your study guide out loud! Feel free to ask me questions about any part of it."
-                        : "Need help understanding any of this? Click 'Listen with Bobby' to hear me read it, or ask me questions about the content!"
+                        ? "I'm highlighting the most important parts for you! Key terms are in bright yellow!"
+                        : "Click 'Bobby's Summary' to hear me walk through the key points, or go full screen to focus!"
                       }
                     </p>
                   </div>
@@ -469,6 +510,50 @@ STUDY RECOMMENDATIONS
           )}
         </div>
       </main>
+
+      {/* Fullscreen Modal */}
+      <AnimatePresence>
+        {isFullscreen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black z-50 flex flex-col"
+          >
+            {/* Fullscreen Header */}
+            <div className="bg-dark-card border-b border-dark-border p-4 flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-white">Study Guide - Full Screen</h2>
+              <div className="flex gap-3">
+                <button
+                  onClick={speakImportantParts}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all duration-200 ${
+                    isSpeaking 
+                      ? 'bg-red-500 text-white hover:bg-red-600' 
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  {isSpeaking ? 'Stop Bobby' : "Bobby's Summary"}
+                </button>
+                <button
+                  onClick={() => setIsFullscreen(false)}
+                  className="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-600 transition-all duration-200"
+                >
+                  Exit Full Screen
+                </button>
+              </div>
+            </div>
+
+            {/* Fullscreen Content */}
+            <div className="flex-1 bg-dark-bg p-8 overflow-y-auto">
+              <div className="max-w-4xl mx-auto bg-dark-card rounded-lg p-8 border border-dark-border">
+                <div className="prose prose-invert max-w-none text-lg leading-relaxed">
+                  {renderStudyGuide()}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
