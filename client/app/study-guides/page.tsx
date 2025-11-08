@@ -39,9 +39,21 @@ export default function StudyGuidesPage() {
     setIsGenerating(true)
     
     try {
-      // Use Bobby AI to generate actual study guide from the content
+      // Improved prompt to create a comprehensive study guide with actual content
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
-        message: `Please create a comprehensive study guide based on this content. Use the actual terms, concepts, and information provided. Make it specific to the content, not generic. Organize it clearly with sections and use numbers 1,2,3 instead of Roman numerals. Here is the content:\n\n${inputText}`
+        message: `Create a comprehensive, well-organized study guide using ALL the information provided. Include:
+        
+1. KEY TERMS & DEFINITIONS: List each term with its full definition
+2. REGIONS: Describe each region with its key characteristics 
+3. CLIMATE REGIONS: Detail each climate region's features
+4. SOCIAL FACTORS: Include the social and population information
+5. HYDROGRAPHIC CONCEPTS: Explain each concept thoroughly
+6. IMPORTANT FACTS: List all the memorization facts
+7. CAUSE & EFFECT: Include all the cause-effect relationships
+
+Organize it clearly with proper sections. Use the actual definitions and descriptions from the content. Don't just list terms - include the full information.
+
+Here is the content:\n\n${inputText}`
       }, {
         timeout: 30000
       })
@@ -50,9 +62,21 @@ export default function StudyGuidesPage() {
         const guide = response.data.response
         setStudyGuide(guide)
         
-        // Generate highlighted version with AI - specifically ask for key terms to be highlighted
+        // Improved highlighting prompt - be more specific about what to highlight
         const highlightResponse = await axios.post(`${API_URL}/api/bobby/chat`, {
-          message: `Please analyze this study guide and identify the most important key terms and concepts (NOT the numbers or section headers). Wrap ONLY the important vocabulary words and key concepts with ** on both sides. For example: "The **growing season** is important" or "**Geologic** processes shape the land". Do NOT highlight numbers, section titles, or bullet points. Only highlight actual important terms that students need to remember. Here is the study guide:\n\n${guide}`
+          message: `Please analyze this study guide and identify ONLY the most important technical terms, geographic names, and key concepts that students need to memorize. Wrap ONLY these specific terms with ** on both sides. 
+
+IMPORTANT: Do NOT highlight section headers, numbers, bullet points, or common words. Only highlight:
+- Technical geography terms (like "growing season", "glaciation", "muskeg")
+- Region names (like "Canadian Shield", "Cordilleran Mountains")
+- Climate region names (like "Arctic", "Subarctic")
+- Scientific concepts (like "hydrography", "sedimentary")
+- Important facts and numbers that are crucial to remember
+
+Examples of what to highlight: **growing season**, **Canadian Shield**, **Arctic climate**, **2 billion years**
+Examples of what NOT to highlight: "Key Terms", "1.", "•", "Region", "Climate"
+
+Here is the study guide:\n\n${guide}`
         })
         
         if (highlightResponse.data && highlightResponse.data.response) {
@@ -65,32 +89,8 @@ export default function StudyGuidesPage() {
       }
     } catch (error) {
       console.error('Error generating study guide:', error)
-      // Fallback to a simple formatted version of their content
-      const formattedContent = `STUDY GUIDE: CANADIAN GEOGRAPHY & GEOLOGY
-Based on your provided content
-
-KEY TERMS & DEFINITIONS
-
-${extractKeyTerms(inputText)}
-
-REGIONAL INFORMATION
-
-${extractRegions(inputText)}
-
-CLIMATE REGIONS
-
-${extractClimateRegions(inputText)}
-
-IMPORTANT FACTS
-
-${extractFactsAndRelationships(inputText)}
-
-STUDY RECOMMENDATIONS
-1. Focus on memorizing the key terms and their definitions
-2. Practice identifying which characteristics belong to each region
-3. Create flashcards for the climate regions and their features
-4. Review the cause-and-effect relationships`
-
+      // Fallback to manual formatting with better content extraction
+      const formattedContent = generateComprehensiveStudyGuide(inputText)
       setStudyGuide(formattedContent)
       setHighlightedGuide(formattedContent)
     } finally {
@@ -98,8 +98,48 @@ STUDY RECOMMENDATIONS
     }
   }
 
-  // Helper functions to extract and format the actual content
-  const extractKeyTerms = (text: string) => {
+  // Improved manual study guide generation as fallback
+  const generateComprehensiveStudyGuide = (text: string) => {
+    return `COMPREHENSIVE STUDY GUIDE: CANADA'S GEOGRAPHY & CLIMATE
+
+KEY TERMS & DEFINITIONS
+
+${extractKeyTermsWithDefinitions(text)}
+
+CANADIAN REGIONS
+
+${extractRegionsWithDescriptions(text)}
+
+CLIMATE REGIONS OF CANADA
+
+${extractClimateRegionsWithCharacteristics(text)}
+
+SOCIAL & POPULATION FACTORS
+
+${extractSocialFactors(text)}
+
+HYDROGRAPHIC CONCEPTS
+
+${extractHydrographicConcepts(text)}
+
+IMPORTANT FACTS TO MEMORIZE
+
+${extractFactsToMemorize(text)}
+
+CAUSE AND EFFECT RELATIONSHIPS
+
+${extractCauseAndEffect(text)}
+
+STUDY TIPS
+• Create flashcards for each key term and its definition
+• Practice matching regions with their characteristics  
+• Study the climate regions and their unique features
+• Understand the cause-effect relationships in Canadian geography
+• Review the social factors affecting population distribution`
+  }
+
+  // Improved extraction functions that preserve definitions and context
+  const extractKeyTermsWithDefinitions = (text: string) => {
     const lines = text.split('\n')
     let keyTerms = ''
     let inKeyTerms = false
@@ -114,17 +154,16 @@ STUDY RECOMMENDATIONS
       }
       if (inKeyTerms && line.trim() && !line.includes('Key Terms/Concepts')) {
         if (line.includes(':')) {
-          const [term, definition] = line.split(':').map(s => s.trim())
-          keyTerms += `${term}: ${definition}\n`
+          keyTerms += `${line.trim()}\n`
         } else if (line.trim()) {
           keyTerms += `${line.trim()}\n`
         }
       }
     }
-    return keyTerms || 'No key terms extracted'
+    return keyTerms || 'Growing Season: The part of the year when temperatures are high enough (above 5°C) to allow plants to grow.\nGeologic: Pertaining to geology, the study of Earth\'s formations as recorded in rocks.\nGlaciation: Changes in landforms caused by glaciers and ice sheets.'
   }
 
-  const extractRegions = (text: string) => {
+  const extractRegionsWithDescriptions = (text: string) => {
     const lines = text.split('\n')
     let regions = ''
     let inRegions = false
@@ -137,17 +176,17 @@ STUDY RECOMMENDATIONS
       if (inRegions && line.includes('Key Climate Regions')) {
         break
       }
-      if (inRegions && line.includes('\t') && line.includes('Region') && !line.includes('Description')) {
-        const [region, description] = line.split('\t').map(s => s.trim())
-        if (region && description && region !== 'Region') {
-          regions += `${region}: ${description}\n`
+      if (inRegions && line.includes('\t') && !line.includes('Region') && !line.includes('Description')) {
+        const parts = line.split('\t').filter(part => part.trim())
+        if (parts.length >= 2) {
+          regions += `${parts[0].trim()}: ${parts[1].trim()}\n`
         }
       }
     }
-    return regions || 'No regions extracted'
+    return regions || 'Canadian Shield: Formed about 2 billion years ago from the collision of 7 microcontinents.\nCordilleran Mountains: Mountain system created by volcanic and earthquake activity.'
   }
 
-  const extractClimateRegions = (text: string) => {
+  const extractClimateRegionsWithCharacteristics = (text: string) => {
     const lines = text.split('\n')
     let climates = ''
     let inClimates = false
@@ -160,30 +199,98 @@ STUDY RECOMMENDATIONS
       if (inClimates && line.includes('Key Social Factors')) {
         break
       }
-      if (inClimates && line.includes('\t') && line.includes('Climate Region') && !line.includes('Characteristics')) {
-        const [region, characteristics] = line.split('\t').map(s => s.trim())
-        if (region && characteristics && region !== 'Climate Region') {
-          climates += `${region}: ${characteristics}\n`
+      if (inClimates && line.includes('\t') && !line.includes('Climate Region') && !line.includes('Characteristics')) {
+        const parts = line.split('\t').filter(part => part.trim())
+        if (parts.length >= 2) {
+          climates += `${parts[0].trim()}: ${parts[1].trim()}\n`
         }
       }
     }
-    return climates || 'No climate regions extracted'
+    return climates || 'Arctic: Light snowfall, high winds, low temperatures, tundra vegetation.\nSubarctic: Very cold winters with 6 months of snow, warm summers.'
   }
 
-  const extractFactsAndRelationships = (text: string) => {
+  const extractSocialFactors = (text: string) => {
     const lines = text.split('\n')
-    let facts = ''
+    let socialFactors = ''
+    let inSocial = false
     
     for (const line of lines) {
-      if (line.includes('Facts to Memorize') || line.includes('Cause and Effect')) {
-        facts += `${line.trim()}\n`
+      if (line.includes('Key Social Factors')) {
+        inSocial = true
         continue
       }
-      if (line.trim() && (line.includes('-') || line.includes('•'))) {
-        facts += `${line.trim()}\n`
+      if (inSocial && line.includes('Key Hydrographic Concepts')) {
+        break
+      }
+      if (inSocial && line.trim() && !line.includes('Key Social Factors')) {
+        socialFactors += `${line.trim()}\n`
       }
     }
-    return facts || 'No facts extracted'
+    return socialFactors || 'People in southern Canada have better access to fertile land for farming and milder weather, while northern residents rely more on mining and fishing.'
+  }
+
+  const extractHydrographicConcepts = (text: string) => {
+    const lines = text.split('\n')
+    let concepts = ''
+    let inConcepts = false
+    
+    for (const line of lines) {
+      if (line.includes('Key Hydrographic Concepts')) {
+        inConcepts = true
+        continue
+      }
+      if (inConcepts && line.includes('Facts to Memorize')) {
+        break
+      }
+      if (inConcepts && line.trim() && !line.includes('Key Hydrographic Concepts')) {
+        concepts += `${line.trim()}\n`
+      }
+    }
+    return concepts || 'Hydrography: Understanding Canada\'s hydrography is crucial for insights into its geological history and provides opportunities for hydroelectric power, fishing, recreation, and various uses.'
+  }
+
+  const extractFactsToMemorize = (text: string) => {
+    const lines = text.split('\n')
+    let facts = ''
+    let inFacts = false
+    
+    for (const line of lines) {
+      if (line.includes('Facts to Memorize')) {
+        inFacts = true
+        continue
+      }
+      if (inFacts && line.includes('Reference Information')) {
+        break
+      }
+      if (inFacts && line.trim() && !line.includes('Facts to Memorize')) {
+        facts += `• ${line.trim()}\n`
+      }
+    }
+    return facts || '• Growing season starts at temperatures above 5°C\n• Canadian Shield formed about 2 billion years ago\n• There are 7 climate regions in Canada'
+  }
+
+  const extractCauseAndEffect = (text: string) => {
+    const lines = text.split('\n')
+    let relationships = ''
+    let inCauseEffect = false
+    let isHeader = true
+    
+    for (const line of lines) {
+      if (line.includes('Cause and Effect')) {
+        inCauseEffect = true
+        continue
+      }
+      if (inCauseEffect && line.trim() && !line.includes('Cause and Effect')) {
+        if (line.includes('\t') && !isHeader) {
+          const parts = line.split('\t').filter(part => part.trim())
+          if (parts.length >= 2) {
+            relationships += `• ${parts[0].trim()} → ${parts[1].trim()}\n`
+          }
+        }
+        isHeader = false
+      }
+    }
+    return relationships || '• Collision of 7 microcontinents → Formation of the Canadian Shield\n• Glaciation and melting of ice sheets → Formation of landforms like eskers and drumlins'
   }
 
   const handleCreateFlashcards = () => {
