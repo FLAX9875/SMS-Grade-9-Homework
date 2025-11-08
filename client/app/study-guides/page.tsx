@@ -233,7 +233,10 @@ STUDY RECOMMENDATIONS
         } else if (/^\d+\./.test(trimmed) || trimmed.startsWith('•')) {
           // This is a numbered or bullet point - add to current section
           currentSection += trimmed.replace(/^\d+\.\s*/, '').replace(/^•\s*/, '') + '. '
-        } else if (currentSection && !trimmed.toUpperCase() === trimmed) {
+        } else if (currentSection && trimmed.toUpperCase() !== trimmed) {
+          // Regular content line that's not all uppercase (not a header)
+          currentSection += trimmed + ' '
+        } else if (currentSection) {
           // Regular content line
           currentSection += trimmed + ' '
         }
