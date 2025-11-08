@@ -10,6 +10,7 @@ import HomeworkModal from './components/HomeworkModal'
 import Header from './components/Header'
 import ContactModal from './components/ContactModal'
 import BobbyChat from './components/BobbyChat'
+import { useRouter } from 'next/navigation'
 
 interface Homework {
   _id: string
@@ -69,6 +70,7 @@ export default function Home() {
   const [username, setUsername] = useState('')
   const [activeTab, setActiveTab] = useState<'main' | 'done' | 'studying'>('main')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const router = useRouter()
 
   // Get or set username
   useEffect(() => {
@@ -250,6 +252,19 @@ export default function Home() {
     return 'text-gray-400' // Not urgent
   }
 
+  // Navigation handlers for study tools
+  const navigateToStudyGuides = () => {
+    router.push('/study-guides')
+  }
+
+  const navigateToFlashcards = () => {
+    router.push('/flashcards')
+  }
+
+  const navigateToStudySessions = () => {
+    router.push('/study-sessions')
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-dark-bg flex items-center justify-center">
@@ -324,50 +339,90 @@ export default function Home() {
         </motion.div>
 
         {activeTab === 'studying' ? (
-          // Study Links Tab
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <AnimatePresence>
-              {studyLinks.map((link, index) => (
-                <motion.div
-                  key={link._id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3, delay: index * 0.1 }}
-                  className="bg-dark-card rounded-lg p-6 border border-dark-border hover:border-purple-400 transition-colors duration-200"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-white line-clamp-2">{link.title}</h3>
-                    <span className="text-xs text-dark-text-secondary bg-dark-border px-2 py-1 rounded">
-                      {formatDistanceToNow(new Date(link.createdAt), { addSuffix: true })}
-                    </span>
-                  </div>
-                  
-                  {link.description && (
-                    <p className="text-dark-text-secondary text-sm mb-4 line-clamp-3">
-                      {link.description}
-                    </p>
-                  )}
-                  
-                  <div className="flex items-center justify-between">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-sm font-medium"
+          // Study Section
+          <div className="space-y-8">
+            {/* Study Tools Navigation */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"
+            >
+              <button
+                onClick={navigateToStudyGuides}
+                className="bg-gradient-to-br from-purple-500 to-pink-500 text-white p-6 rounded-lg border border-purple-400 hover:from-purple-600 hover:to-pink-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 group"
+              >
+                <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-200">📚</div>
+                <h3 className="text-lg font-semibold mb-2">Study Guides</h3>
+                <p className="text-sm opacity-90">Generate custom study guides</p>
+              </button>
+
+              <button
+                onClick={navigateToFlashcards}
+                className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white p-6 rounded-lg border border-blue-400 hover:from-blue-600 hover:to-cyan-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 group"
+              >
+                <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-200">🎴</div>
+                <h3 className="text-lg font-semibold mb-2">Flashcards</h3>
+                <p className="text-sm opacity-90">Interactive flashcard decks</p>
+              </button>
+
+              <button
+                onClick={navigateToStudySessions}
+                className="bg-gradient-to-br from-green-500 to-emerald-500 text-white p-6 rounded-lg border border-green-400 hover:from-green-600 hover:to-emerald-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 group"
+              >
+                <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-200">⏱️</div>
+                <h3 className="text-lg font-semibold mb-2">Study Sessions</h3>
+                <p className="text-sm opacity-90">Timed study sessions</p>
+              </button>
+            </motion.div>
+
+            {/* Study Links Section */}
+            <div>
+              <h2 className="text-xl font-semibold text-white mb-6">Study Resources</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <AnimatePresence>
+                  {studyLinks.map((link, index) => (
+                    <motion.div
+                      key={link._id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3, delay: index * 0.1 }}
+                      className="bg-dark-card rounded-lg p-6 border border-dark-border hover:border-purple-400 transition-colors duration-200"
                     >
-                      <span>Visit Link</span>
-                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                    <span className="text-xs text-dark-text-secondary">
-                      by {link.addedBy}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                      <div className="flex items-start justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-white line-clamp-2">{link.title}</h3>
+                        <span className="text-xs text-dark-text-secondary bg-dark-border px-2 py-1 rounded">
+                          {formatDistanceToNow(new Date(link.createdAt), { addSuffix: true })}
+                        </span>
+                      </div>
+                      
+                      {link.description && (
+                        <p className="text-dark-text-secondary text-sm mb-4 line-clamp-3">
+                          {link.description}
+                        </p>
+                      )}
+                      
+                      <div className="flex items-center justify-between">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors duration-200 text-sm font-medium"
+                        >
+                          <span>Visit Link</span>
+                          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                        <span className="text-xs text-dark-text-secondary">
+                          by {link.addedBy}
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
           </div>
         ) : homework.length === 0 ? (
           <motion.div
@@ -424,10 +479,10 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-center py-16"
+              className="text-center py-8"
             >
-              <div className="text-6xl mb-4">📖</div>
-              <h2 className="text-2xl font-semibold text-white mb-2">No study links yet!</h2>
+              <div className="text-4xl mb-4">📖</div>
+              <h2 className="text-xl font-semibold text-white mb-2">No study links yet!</h2>
               <p className="text-dark-text-secondary">
                 Add study resources using the Discord bot command /link
               </p>
