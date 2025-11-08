@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FlipHorizontal, ChevronLeft, ChevronRight, Check, X } from 'lucide-react'
+import axios from 'axios' // ADD THIS IMPORT
 
 interface Flashcard {
   _id?: string
