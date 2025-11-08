@@ -198,7 +198,7 @@ STUDY RECOMMENDATIONS
     fileInputRef.current?.click()
   }
 
-  // Text-to-speech function - only reads important parts
+  // Text-to-speech function with higher-pitched, clumsy voice
   const speakImportantParts = async () => {
     if (!studyGuide) return
 
@@ -237,13 +237,13 @@ STUDY RECOMMENDATIONS
 
       const speech = new SpeechSynthesisUtterance()
       
-      // More playful voice settings
-      const bobbyIntro = "Hey there! It's your study buddy Bobby! Let me walk you through the most important parts of your study guide. Ready? Here we go! "
-      const fullText = bobbyIntro + importantParts.join('. Next, ') + ". And that's the main stuff! Want me to go over anything again? Just ask!"
+      // Higher-pitched, clumsy/funny voice intro
+      const bobbyIntro = "Hey there! It's your study buddy Bobby! Oops, almost tripped over my own paws there! Let me, uh, try to walk you through the most important parts of your study guide. Ready? Here we go! "
+      const fullText = bobbyIntro + importantParts.join('. Next, ') + ". Whew, made it through without too many oopsies! That's the main stuff! Want me to go over anything again? Just ask!"
       
       speech.text = fullText
-      speech.rate = 1.0 // Normal speed but enthusiastic
-      speech.pitch = 1.2 // Higher pitch for playful voice
+      speech.rate = 1.1 // Slightly faster for energetic voice
+      speech.pitch = 1.4 // Higher pitch for funny, clumsy voice
       speech.volume = 1
 
       // Try to get a more playful voice
@@ -251,7 +251,8 @@ STUDY RECOMMENDATIONS
       const playfulVoice = voices.find(voice => 
         voice.name.includes('Google UK English Male') || 
         voice.name.includes('Microsoft David') ||
-        voice.name.includes('Alex')
+        voice.name.includes('Alex') ||
+        voice.name.includes('Google US English')
       )
       
       if (playfulVoice) {
@@ -273,50 +274,63 @@ STUDY RECOMMENDATIONS
     }
   }
 
-  // Render study guide with highlights
-  const renderStudyGuide = () => {
-    if (!highlightedGuide) return studyGuide
+  // Clean formatting by removing unwanted characters and fixing structure
+  const cleanStudyGuide = (text: string) => {
+    return text
+      .replace(/\*\*/g, '') // Remove all asterisks
+      .replace(/#+/g, '') // Remove hash symbols
+      .replace(/\* /g, '• ') // Replace asterisk bullets with proper bullets
+      .replace(/- /g, '• ') // Replace dashes with proper bullets
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n')
+  }
 
-    return highlightedGuide.split('\n').map((line, index) => {
-      // Remove all asterisks and apply custom highlighting
-      const cleanLine = line.replace(/\*\*/g, '')
-      
-      if (cleanLine.trim() === '') {
+  // Render study guide with clean formatting
+  const renderStudyGuide = () => {
+    const cleanGuide = cleanStudyGuide(highlightedGuide || studyGuide)
+    
+    return cleanGuide.split('\n').map((line, index) => {
+      if (line.trim() === '') {
         return <div key={index} className="h-4"></div>
       }
       
-      // Highlight headings and key terms
-      if (cleanLine.toUpperCase() === cleanLine && cleanLine.length < 100) {
-        // This is likely a heading
+      // Style headings
+      if (line.toUpperCase() === line && line.length < 100 && !line.startsWith('•')) {
         return (
           <div key={index} className="text-xl font-bold text-purple-400 mb-4 mt-6 border-b border-purple-400 pb-2">
-            {cleanLine}
-          </div>
-        )
-      } else if (line.includes('**') && highlightedGuide !== studyGuide) {
-        // This has highlighted terms - extract them
-        const parts = line.split('**')
-        return (
-          <div key={index} className="text-white mb-3 leading-relaxed">
-            {parts.map((part, partIndex) => 
-              partIndex % 2 === 1 ? (
-                <span key={partIndex} className="bg-yellow-400 text-black font-bold px-1 rounded">
-                  {part}
-                </span>
-              ) : (
-                part
-              )
-            )}
-          </div>
-        )
-      } else {
-        // Regular text
-        return (
-          <div key={index} className="text-white mb-3 leading-relaxed">
-            {cleanLine}
+            {line}
           </div>
         )
       }
+      
+      // Style numbered items
+      if (/^\d+\./.test(line.trim())) {
+        return (
+          <div key={index} className="text-white mb-3 ml-4 leading-relaxed">
+            <span className="text-yellow-400 font-bold">{line.split('.')[0]}.</span>
+            {line.substring(line.indexOf('.') + 1)}
+          </div>
+        )
+      }
+      
+      // Style bullet points
+      if (line.trim().startsWith('•')) {
+        return (
+          <div key={index} className="text-white mb-2 ml-6 leading-relaxed flex items-start">
+            <span className="text-green-400 mr-2 mt-1">•</span>
+            <span>{line.substring(1).trim()}</span>
+          </div>
+        )
+      }
+      
+      // Regular text
+      return (
+        <div key={index} className="text-white mb-3 leading-relaxed">
+          {line}
+        </div>
+      )
     })
   }
 
@@ -499,8 +513,8 @@ STUDY RECOMMENDATIONS
                     <h4 className="text-white font-semibold mb-2">Bobby the Study Cat</h4>
                     <p className="text-dark-text-secondary">
                       {isSpeaking 
-                        ? "I'm highlighting the most important parts for you! Key terms are in bright yellow!"
-                        : "Click 'Bobby's Summary' to hear me walk through the key points, or go full screen to focus!"
+                        ? "Whoa, listen to my high-pitched voice! I'm highlighting the most important parts for you!"
+                        : "Click 'Bobby's Summary' to hear my funny high-pitched voice walk through the key points! Oops, watch out for my tail!"
                       }
                     </p>
                   </div>
