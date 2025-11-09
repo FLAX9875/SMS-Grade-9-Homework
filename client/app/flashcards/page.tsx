@@ -105,7 +105,7 @@ export default function FlashcardsPage() {
     
     let id = 1
 
-    // Key terms flashcards
+    
     keyTerms.slice(0, Math.min(count, keyTerms.length)).forEach(term => {
       flashcards.push({
         id: id++,
@@ -114,7 +114,7 @@ export default function FlashcardsPage() {
       })
     })
 
-    // Region flashcards
+    
     const remainingSlots = count - flashcards.length
     if (remainingSlots > 0) {
       regions.slice(0, Math.min(remainingSlots, regions.length)).forEach(region => {
@@ -126,7 +126,7 @@ export default function FlashcardsPage() {
       })
     }
 
-    // Climate region flashcards
+    
     const moreSlots = count - flashcards.length
     if (moreSlots > 0) {
       climateRegions.slice(0, Math.min(moreSlots, climateRegions.length)).forEach(climate => {
@@ -138,7 +138,7 @@ export default function FlashcardsPage() {
       })
     }
 
-    // Fact flashcards
+    
     const finalSlots = count - flashcards.length
     if (finalSlots > 0) {
       facts.slice(0, Math.min(finalSlots, facts.length)).forEach(fact => {
@@ -150,7 +150,7 @@ export default function FlashcardsPage() {
       })
     }
 
-    // Fill remaining slots with general questions if needed
+    
     while (flashcards.length < count) {
       flashcards.push({
         id: id++,
