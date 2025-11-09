@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
 
-// Dynamic API URL
+
 const getApiUrl = () => {
   return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
 }
@@ -38,7 +38,7 @@ export default function StudyGuidesPage() {
     setIsGenerating(true)
     
     try {
-      // Simple prompt to create a clean study guide with numbers
+     
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
         message: `Create a comprehensive, well-organized study guide using ALL the information provided. 
 
@@ -57,7 +57,7 @@ Here is the content:\n\n${inputText}`
 
       if (response.data && response.data.response) {
         const guide = response.data.response
-        // Clean up any remaining markdown and Roman numerals
+        
         const cleanGuide = guide
           .replace(/\*\*/g, '')
           .replace(/\|/g, '')
@@ -75,7 +75,7 @@ Here is the content:\n\n${inputText}`
       }
     } catch (error) {
       console.error('Error generating study guide:', error)
-      // Fallback to manual formatting
+      
       const formattedContent = generateComprehensiveStudyGuide(inputText)
       setStudyGuide(formattedContent)
     } finally {
@@ -83,7 +83,7 @@ Here is the content:\n\n${inputText}`
     }
   }
 
-  // Manual study guide generation as fallback
+  
   const generateComprehensiveStudyGuide = (text: string) => {
     return `GRADE 9 CANADA STUDY GUIDE
 
@@ -123,7 +123,7 @@ STUDY TIPS
 • Review the social factors affecting population distribution`
   }
 
-  // Extraction functions that preserve definitions and context
+  
   const extractKeyTermsWithDefinitions = (text: string) => {
     const lines = text.split('\n')
     let keyTerms = ''
@@ -290,7 +290,7 @@ STUDY TIPS
     fileInputRef.current?.click()
   }
 
-  // Text-to-speech function - clean and simple
+  
   const speakImportantParts = async () => {
     if (!studyGuide) return
 
@@ -305,7 +305,7 @@ STUDY TIPS
     setIsSpeaking(true)
 
     if ('speechSynthesis' in window) {
-      // Clean the study guide text by removing asterisks and formatting
+      
       const cleanText = studyGuide.replace(/\*\*/g, '').replace(/[•*;-]\s*/g, '')
       
       const speech = new SpeechSynthesisUtterance()
@@ -344,41 +344,41 @@ STUDY TIPS
     }
   }
 
-  // Clean formatting
+  
   const cleanStudyGuide = (text: string) => {
     return text
-      .replace(/\*\*/g, '') // Remove all asterisks
-      .replace(/\|/g, '') // Remove table pipes
-      .replace(/#+/g, '') // Remove hash symbols
-      .replace(/\* /g, '• ') // Replace asterisk bullets with proper bullets
-      .replace(/- /g, '• ') // Replace dashes with proper bullets
+      .replace(/\*\*/g, '') 
+      .replace(/\|/g, '') 
+      .replace(/#+/g, '') 
+      .replace(/\* /g, '• ') 
+      .replace(/- /g, '• ') 
       .split('\n')
       .map(line => line.trim())
       .filter(line => line.length > 0)
       .join('\n')
   }
 
-  // Render study guide with organized sections and borders
+  
   const renderStudyGuide = () => {
     const cleanGuide = cleanStudyGuide(studyGuide)
     const sections = []
     let currentSection = []
     let currentSectionTitle = ''
     
-    // Split into sections based on major headings
+    
     const lines = cleanGuide.split('\n')
     
     for (const line of lines) {
-      // Detect section headers (look for numbered sections)
+      
       if ((/^\d+\./.test(line) || line.toUpperCase() === line) && line.length < 100 && !line.startsWith('•') && line.length > 3) {
-        // If we have a previous section, save it
+        
         if (currentSection.length > 0) {
           sections.push({
             title: currentSectionTitle,
             content: [...currentSection]
           })
         }
-        // Start new section
+        
         currentSectionTitle = line
         currentSection = []
       } else {
@@ -386,7 +386,7 @@ STUDY TIPS
       }
     }
     
-    // Add the last section
+    
     if (currentSection.length > 0) {
       sections.push({
         title: currentSectionTitle,
@@ -394,7 +394,7 @@ STUDY TIPS
       })
     }
 
-    // If no sections were detected, create one
+    
     if (sections.length === 0) {
       sections.push({
         title: 'STUDY GUIDE',
@@ -416,7 +416,7 @@ STUDY TIPS
               return <div key={lineIndex} className="h-3"></div>
             }
             
-            // Style numbered items
+            
             if (/^\d+\./.test(line.trim())) {
               const numberMatch = line.match(/^(\d+\.)\s*(.*)/)
               if (numberMatch) {
@@ -429,7 +429,7 @@ STUDY TIPS
               }
             }
             
-            // Style bullet points
+            
             if (line.trim().startsWith('•')) {
               const content = line.substring(1).trim()
               return (
@@ -440,7 +440,7 @@ STUDY TIPS
               )
             }
             
-            // Regular text
+            
             return (
               <div key={lineIndex} className="text-white mb-3 leading-relaxed">
                 {line}
