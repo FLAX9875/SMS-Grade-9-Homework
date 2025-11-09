@@ -15,7 +15,6 @@ export default function FlashcardsPage() {
   const [numQuestions, setNumQuestions] = useState(10)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Check for content from study guide
   useEffect(() => {
     const content = searchParams.get('content')
     if (content) {
@@ -43,7 +42,7 @@ export default function FlashcardsPage() {
     setIsGenerating(true)
     
     try {
-      // Generate flashcards based on the actual content
+      
       const generatedFlashcards = generateFlashcardsFromContent(inputText, numQuestions)
       setFlashcards(generatedFlashcards)
     } catch (error) {
@@ -54,7 +53,7 @@ export default function FlashcardsPage() {
     }
   }
 
-  // Function to generate flashcards from actual content
+  
   const generateFlashcardsFromContent = (content: string, count: number) => {
     const lines = content.split('\n')
     const flashcards = []
@@ -63,7 +62,7 @@ export default function FlashcardsPage() {
     let climateRegions: Array<{name: string, characteristics: string}> = []
     let facts: string[] = []
 
-    // Parse the content
+    
     let currentSection = ''
     
     for (const line of lines) {
@@ -103,7 +102,7 @@ export default function FlashcardsPage() {
       }
     }
 
-    // Generate flashcards based on the parsed content
+    
     let id = 1
 
     // Key terms flashcards
