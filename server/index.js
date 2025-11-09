@@ -18,7 +18,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
-// ADD THIS LINE TO FIX THE RATE LIMIT PROXY ISSUE
+
 app.set('trust proxy', 1);
 
 // Discord webhook configuration
@@ -33,7 +33,7 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('Created uploads directory');
 }
 
-// Rate limiting configuration - more lenient for better user experience
+// Rate limiting configuration 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 200, // limit each IP to 200 requests per 15 minutes
