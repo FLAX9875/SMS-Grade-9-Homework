@@ -1,10 +1,10 @@
-// components/FlashcardDeck.tsx
+
 'use client'
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FlipHorizontal, ChevronLeft, ChevronRight, Check, X } from 'lucide-react'
-import axios from 'axios' // ADD THIS IMPORT
+import axios from 'axios' 
 
 interface Flashcard {
   _id?: string
@@ -50,12 +50,12 @@ export default function FlashcardDeck({ flashcards, studyGuideId, apiUrl, userId
       
       setResults(prev => [...prev, correct])
       
-      // Move to next card
+     
       if (currentIndex < flashcards.length - 1) {
         setCurrentIndex(prev => prev + 1)
         setIsFlipped(false)
       } else {
-        // Session completed
+        
         await axios.patch(`${apiUrl}/api/study/session/${sessionId}/complete`)
       }
     } catch (error) {
