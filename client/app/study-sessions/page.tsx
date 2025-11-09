@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 
 export default function StudySessionsPage() {
   const router = useRouter()
-  const [timeLeft, setTimeLeft] = useState(25 * 60) // 25 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState(25 * 60) 
   const [isActive, setIsActive] = useState(false)
 
   useEffect(() => {
