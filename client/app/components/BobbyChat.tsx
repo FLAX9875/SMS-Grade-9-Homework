@@ -54,7 +54,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
     }
   }, [isOpen])
 
-  // Handle resize
+  
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!chatWindowRef.current) return
@@ -98,7 +98,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      if (file.size > 10 * 1024 * 1024) { 
         alert('Image size must be less than 10MB')
         return
       }
@@ -119,7 +119,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
     }
   }
 
-  // Make links clickable
+  
   const renderContentWithLinks = (content: string) => {
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
     const parts: (string | JSX.Element)[] = []
@@ -127,12 +127,12 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
     let match
 
     while ((match = linkRegex.exec(content)) !== null) {
-      // Add text before the link
+      
       if (match.index > lastIndex) {
         parts.push(content.substring(lastIndex, match.index))
       }
       
-      // Add the link
+      
       parts.push(
         <a
           key={match.index}
@@ -148,7 +148,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
       lastIndex = match.index + match[0].length
     }
 
-    // Add remaining text
+    
     if (lastIndex < content.length) {
       parts.push(content.substring(lastIndex))
     }
@@ -159,7 +159,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
   const sendMessage = async () => {
     if ((!input.trim() && !selectedImage) || isLoading) return
 
-    // Determine activity status
+    
     const needsResearch = input.toLowerCase().includes('search') || 
                          input.toLowerCase().includes('research') ||
                          input.toLowerCase().includes('find') ||
@@ -181,7 +181,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
     if (fileInputRef.current) fileInputRef.current.value = ''
     setIsLoading(true)
     
-    // Set activity status
+    
     if (selectedImage) {
       setActivityStatus('Analyzing image...')
     } else if (needsResearch) {
@@ -197,7 +197,7 @@ export default function BobbyChat({ apiUrl }: BobbyChatProps) {
         formData.append('image', selectedImage)
       }
 
-      // Update activity status during request
+      
       setTimeout(() => {
         if (isLoading) {
           if (selectedImage) {
