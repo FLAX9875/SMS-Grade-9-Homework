@@ -36,13 +36,13 @@ interface StudyLink {
   createdAt: string
 }
 
-// Dynamic API URL based on environment
+
 const getApiUrl = () => {
   if (typeof window !== 'undefined') {
-    // Client-side: use environment variable or fallback to production
+    
     return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
   } else {
-    // Server-side: use environment variable or fallback to production
+    
     return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
   }
 }
@@ -50,7 +50,7 @@ const getApiUrl = () => {
 const API_URL = getApiUrl()
 const WINNIPEG_TIMEZONE = 'America/Winnipeg'
 
-// Add retry logic for rate limiting
+
 axios.interceptors.response.use(null, async (error) => {
   if (error.response?.status === 429) {
     console.log('Rate limited, retrying in 2 seconds...')
@@ -72,7 +72,7 @@ export default function Home() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const router = useRouter()
 
-  // Get or set username
+  
   useEffect(() => {
     const savedUsername = localStorage.getItem('homework-username')
     if (savedUsername) {
@@ -87,7 +87,7 @@ export default function Home() {
   const fetchHomework = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/homework`, {
-        timeout: 10000, // 10 second timeout
+        timeout: 10000, 
         headers: {
           'Content-Type': 'application/json',
         }
@@ -95,7 +95,7 @@ export default function Home() {
       setHomework(response.data)
     } catch (error) {
       console.error('Error fetching homework:', error)
-      // Show user-friendly error message
+      
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
           console.error('Backend server is not running or not reachable')
@@ -103,7 +103,7 @@ export default function Home() {
           console.error('Backend service temporarily unavailable')
         }
       }
-      // Keep existing homework data if available, don't clear it on error
+      
     } finally {
       setLoading(false)
     }
@@ -112,7 +112,7 @@ export default function Home() {
   const fetchStudyLinks = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/study-links`, {
-        timeout: 10000, // 10 second timeout
+        timeout: 10000, 
         headers: {
           'Content-Type': 'application/json',
         }
@@ -120,7 +120,7 @@ export default function Home() {
       setStudyLinks(response.data)
     } catch (error) {
       console.error('Error fetching study links:', error)
-      // Show user-friendly error message
+      
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
           console.error('Backend server is not running or not reachable')
@@ -128,7 +128,7 @@ export default function Home() {
           console.error('Backend service temporarily unavailable')
         }
       }
-      // Keep existing study links data if available, don't clear it on error
+      
     }
   }
 
@@ -136,7 +136,7 @@ export default function Home() {
     fetchHomework()
     fetchStudyLinks()
     
-    // Auto-refresh every 60 seconds to reduce server load
+    
     const interval = setInterval(() => {
       fetchHomework()
       fetchStudyLinks()
@@ -145,7 +145,7 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [])
 
-  // Auto-hide toast after 3 seconds
+  
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => {
@@ -169,7 +169,7 @@ export default function Home() {
     try {
       if (!username) return
       
-      // Use personal completion API (try PATCH first, then POST as fallback)
+      
       try {
         await axios.patch(`${API_URL}/api/homework/${id}/complete`, 
           { username },
@@ -181,7 +181,7 @@ export default function Home() {
           }
         )
       } catch (patchError) {
-        // Fallback to POST if PATCH fails
+        
         console.log('PATCH failed, trying POST fallback...')
         await axios.post(`${API_URL}/api/homework/${id}/complete`, 
           { username },
@@ -194,19 +194,19 @@ export default function Home() {
         )
       }
       
-      // Update local state to reflect personal completion
+      
       setHomework(prev => prev.map(item => {
         if (item._id === id) {
           const isCompleted = item.completedBy.some(completion => completion.username === username)
           if (isCompleted) {
-            // Remove from personal completion
+            
             setToast({ message: '✅ Homework marked as not done!', type: 'success' })
             return {
               ...item,
               completedBy: item.completedBy.filter(completion => completion.username !== username)
             }
           } else {
-            // Add to personal completion
+            
             setToast({ message: '✅ Homework marked as done!', type: 'success' })
             return {
               ...item,
@@ -218,7 +218,7 @@ export default function Home() {
       }))
     } catch (error) {
       console.error('Error updating homework status:', error)
-      // Show user-friendly error message
+      
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
           console.error('Backend server is not running or not reachable')
@@ -246,13 +246,13 @@ export default function Home() {
     const dueWinnipeg = utcToZonedTime(due, WINNIPEG_TIMEZONE)
     const diffDays = Math.ceil((dueWinnipeg.getTime() - nowWinnipeg.getTime()) / (1000 * 60 * 60 * 24))
     
-    if (diffDays < 0) return 'text-red-500' // Overdue
-    if (diffDays <= 1) return 'text-red-400' // Due today/tomorrow
-    if (diffDays <= 3) return 'text-yellow-400' // Due soon
-    return 'text-gray-400' // Not urgent
+    if (diffDays < 0) return 'text-red-500' 
+    if (diffDays <= 1) return 'text-red-400' 
+    if (diffDays <= 3) return 'text-yellow-400' 
+    return 'text-gray-400' 
   }
 
-  // Navigation handlers for study tools
+  
   const navigateToStudyGuides = () => {
     router.push('/study-guides')
   }
@@ -339,7 +339,7 @@ export default function Home() {
         </motion.div>
 
         {activeTab === 'studying' ? (
-          // Study Section
+          
           <div className="space-y-8">
             {/* Study Tools Navigation */}
             <motion.div
@@ -443,10 +443,10 @@ export default function Home() {
                 .filter(item => {
                   const isPersonallyCompleted = item.completedBy.some(completion => completion.username === username)
                   if (activeTab === 'main') {
-                    // Show items that are not personally completed
+                    
                     return !isPersonallyCompleted
                   } else {
-                    // Show items that are personally completed
+                    
                     return isPersonallyCompleted
                   }
                 })
