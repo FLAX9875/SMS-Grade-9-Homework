@@ -1,4 +1,4 @@
-// components/StudySession.tsx
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -75,7 +75,7 @@ export default function StudySession({
   const incorrectCount = cardStatus.filter(status => status === 'incorrect').length
   const unseenCount = cardStatus.filter(status => status === 'unseen').length
 
-  // Timer effect
+  
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null
     
@@ -115,18 +115,18 @@ export default function StudySession({
     if (!sessionId || !currentCard._id) return
 
     try {
-      // Update card status
+      
       const newCardStatus = [...cardStatus]
       newCardStatus[currentCardIndex] = correct ? 'correct' : 'incorrect'
       setCardStatus(newCardStatus)
 
-      // Record in session
+      
       await axios.patch(`${apiUrl}/api/study/session/${sessionId}`, {
         flashcardId: currentCard._id,
         correct
       })
 
-      // Move to next card or complete session
+      
       if (currentCardIndex < studyGuide.flashcards.length - 1) {
         setCurrentCardIndex(prev => prev + 1)
         setIsFlipped(false)
