@@ -518,7 +518,7 @@ export default function Home() {
       <footer className="mt-16 py-8 border-t border-dark-border">
         <div className="container mx-auto px-4 text-center">
           <p className="text-dark-text-secondary text-sm">
-            Created by <span className="text-white font-medium">Zaire</span> • SMS Grade 9 Homework Tracker
+            Created by <span className="text-white font-medium">Somting</span> • SMS Grade 9 Homework Tracker
           </p>
         </div>
       </footer>
