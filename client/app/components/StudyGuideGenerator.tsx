@@ -1,4 +1,4 @@
-// components/StudyGuideGenerator.tsx
+
 'use client'
 
 import { useState } from 'react'
