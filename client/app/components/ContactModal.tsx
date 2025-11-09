@@ -9,13 +9,13 @@ interface ContactModalProps {
   onClose: () => void
 }
 
-// Dynamic API URL based on environment
+
 const getApiUrl = () => {
   if (typeof window !== 'undefined') {
-    // Client-side: use environment variable or fallback to production
+    
     return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
   } else {
-    // Server-side: use environment variable or fallback to production
+    
     return process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
   }
 }
@@ -48,7 +48,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Prevent multiple submissions
+    
     if (isSubmitting) return
     
     setIsSubmitting(true)
@@ -56,50 +56,50 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
     setSubmitAttempts(prev => prev + 1)
 
     try {
-      // Get username from localStorage
+      
       const username = localStorage.getItem('homework-username') || 'Anonymous'
       
-      // Prepare form data
+      
       const submitData = {
         ...formData,
         submittedBy: username,
         attachments: files.map(file => ({
           filename: file.name,
           mimetype: file.type,
-          // In a real implementation, you'd upload the file to a storage service
-          // For now, we'll just store the filename
+          
+          
           url: `placeholder-${file.name}`
         }))
       }
 
-      // Submit to API with retry logic
+      
       let retryCount = 0
       const maxRetries = 2
       
       while (retryCount <= maxRetries) {
         try {
           await axios.post(`${API_URL}/api/contact`, submitData, {
-            timeout: 15000, // 15 second timeout for file uploads
+            timeout: 15000, 
             headers: {
               'Content-Type': 'application/json',
             }
           })
-          break // Success, exit retry loop
+          break 
         } catch (error) {
           if (axios.isAxiosError(error) && error.response?.status === 429 && retryCount < maxRetries) {
-            // Rate limited, wait and retry
-            const waitTime = Math.pow(2, retryCount) * 1000 // Exponential backoff
+            
+            const waitTime = Math.pow(2, retryCount) * 1000 
             await new Promise(resolve => setTimeout(resolve, waitTime))
             retryCount++
             continue
           }
-          throw error // Re-throw if not rate limit or max retries reached
+          throw error 
         }
       }
 
       setSubmitStatus('success')
       
-      // Reset form
+      
       setFormData({
         type: 'suggestion',
         title: '',
@@ -109,7 +109,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       setFiles([])
       setSubmitAttempts(0)
 
-      // Auto-close after 2 seconds
+      
       setTimeout(() => {
         onClose()
         setSubmitStatus('idle')
@@ -117,7 +117,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
 
     } catch (error) {
       console.error('Error submitting contact form:', error)
-      // Show user-friendly error message
+      
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
           console.error('Backend server is not running or not reachable')
