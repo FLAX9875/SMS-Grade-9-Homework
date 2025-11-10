@@ -18,7 +18,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const WINNIPEG_TIMEZONE = 'America/Winnipeg';
 
-
+// ADD THIS LINE TO FIX THE RATE LIMIT PROXY ISSUE
 app.set('trust proxy', 1);
 
 // Discord webhook configuration
@@ -33,7 +33,7 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('Created uploads directory');
 }
 
-// Rate limiting configuration 
+// Rate limiting configuration - more lenient for better user experience
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 200, // limit each IP to 200 requests per 15 minutes
@@ -468,6 +468,35 @@ app.put('/api/homework/:id', async (req, res) => {
     
     res.json(homework);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/homework/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    const allowedFields = ['title', 'subject', 'description', 'dueDate'];
+    const invalidFields = Object.keys(updateData).filter(field => !allowedFields.includes(field));
+    
+    if (invalidFields.length > 0) {
+      return res.status(400).json({ error: `Invalid fields: ${invalidFields.join(', ')}` });
+    }
+    
+    const homework = await Homework.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    if (!homework) {
+      return res.status(404).json({ error: 'Homework not found' });
+    }
+    
+    res.json(homework);
+  } catch (error) {
+    console.error('Error updating homework:', error);
     res.status(500).json({ error: error.message });
   }
 });
