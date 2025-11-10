@@ -42,7 +42,6 @@ export default function FlashcardsPage() {
     setIsGenerating(true)
     
     try {
-      
       const generatedFlashcards = generateFlashcardsFromContent(inputText, numQuestions)
       setFlashcards(generatedFlashcards)
     } catch (error) {
@@ -53,113 +52,139 @@ export default function FlashcardsPage() {
     }
   }
 
-  
   const generateFlashcardsFromContent = (content: string, count: number) => {
-    const lines = content.split('\n')
     const flashcards = []
-    let keyTerms: Array<{term: string, definition: string}> = []
-    let regions: Array<{name: string, description: string}> = []
-    let climateRegions: Array<{name: string, characteristics: string}> = []
-    let facts: string[] = []
-
+    const lines = content.split('\n')
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0)
     
-    let currentSection = ''
+    const termDefinitionPairs = []
+    const importantConcepts = []
+    const questions = []
     
-    for (const line of lines) {
-      const trimmedLine = line.trim()
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
       
-      if (trimmedLine.includes('Key Terms/Concepts')) {
-        currentSection = 'terms'
-        continue
-      } else if (trimmedLine.includes('Key Regions')) {
-        currentSection = 'regions'
-        continue
-      } else if (trimmedLine.includes('Key Climate Regions')) {
-        currentSection = 'climate'
-        continue
-      } else if (trimmedLine.includes('Facts to Memorize') || trimmedLine.includes('Cause and Effect')) {
-        currentSection = 'facts'
-        continue
+      if (line.includes(':') && line.length < 150) {
+        const parts = line.split(':')
+        if (parts.length === 2) {
+          const term = parts[0].trim()
+          const definition = parts[1].trim()
+          if (term && definition && term.split(' ').length < 8) {
+            termDefinitionPairs.push({ term, definition })
+          }
+        }
       }
-
-      if (currentSection === 'terms' && trimmedLine.includes(':')) {
-        const [term, definition] = trimmedLine.split(':').map(s => s.trim())
-        if (term && definition) {
-          keyTerms.push({ term, definition })
-        }
-      } else if (currentSection === 'regions' && trimmedLine.includes('\t')) {
-        const [name, description] = trimmedLine.split('\t').map(s => s.trim())
-        if (name && description && name !== 'Region') {
-          regions.push({ name, description })
-        }
-      } else if (currentSection === 'climate' && trimmedLine.includes('\t')) {
-        const [name, characteristics] = trimmedLine.split('\t').map(s => s.trim())
-        if (name && characteristics && name !== 'Climate Region') {
-          climateRegions.push({ name, characteristics })
-        }
-      } else if (currentSection === 'facts' && (trimmedLine.includes('-') || trimmedLine.includes('•'))) {
-        facts.push(trimmedLine.replace('-', '').replace('•', '').trim())
+      
+      if ((line.includes(' is ') || line.includes(' are ') || line.includes(' refers to ') || line.includes(' means ')) && line.length < 200) {
+        importantConcepts.push(line)
+      }
+      
+      if (line.includes('?') && !line.startsWith('?')) {
+        questions.push(line)
       }
     }
-
+    
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim()
+      if (trimmed.length > 20 && trimmed.length < 150) {
+        const words = trimmed.split(' ')
+        if (words.length > 3 && words.length < 15) {
+          if (trimmed.includes(' is ') || trimmed.includes(' are ') || trimmed.includes(' was ') || trimmed.includes(' were ')) {
+            importantConcepts.push(trimmed)
+          }
+        }
+      }
+    }
     
     let id = 1
-
     
-    keyTerms.slice(0, Math.min(count, keyTerms.length)).forEach(term => {
+    for (const pair of termDefinitionPairs) {
+      if (flashcards.length >= count) break
+      
+      const frontOptions = [
+        `What is the definition of ${pair.term}?`,
+        `What does ${pair.term} mean?`,
+        `Define ${pair.term}`,
+        `Explain the concept of ${pair.term}`
+      ]
+      
       flashcards.push({
         id: id++,
-        front: `What is the definition of "${term.term}"?`,
-        back: term.definition
-      })
-    })
-
-    
-    const remainingSlots = count - flashcards.length
-    if (remainingSlots > 0) {
-      regions.slice(0, Math.min(remainingSlots, regions.length)).forEach(region => {
-        flashcards.push({
-          id: id++,
-          front: `Describe the ${region.name} region.`,
-          back: region.description
-        })
+        front: frontOptions[Math.floor(Math.random() * frontOptions.length)],
+        back: pair.definition
       })
     }
-
     
-    const moreSlots = count - flashcards.length
-    if (moreSlots > 0) {
-      climateRegions.slice(0, Math.min(moreSlots, climateRegions.length)).forEach(climate => {
-        flashcards.push({
-          id: id++,
-          front: `What are the characteristics of the ${climate.name} climate region?`,
-          back: climate.characteristics
-        })
+    for (const concept of importantConcepts) {
+      if (flashcards.length >= count) break
+      
+      const words = concept.split(' ')
+      if (words.length < 5) continue
+      
+      const keyTerm = words.slice(0, 3).join(' ')
+      const explanation = words.slice(3).join(' ')
+      
+      if (explanation.length < 10) continue
+      
+      flashcards.push({
+        id: id++,
+        front: `What is ${keyTerm}?`,
+        back: concept
       })
     }
-
     
-    const finalSlots = count - flashcards.length
-    if (finalSlots > 0) {
-      facts.slice(0, Math.min(finalSlots, facts.length)).forEach(fact => {
-        flashcards.push({
-          id: id++,
-          front: `What is this fact about: "${fact.substring(0, 50)}..."?`,
-          back: fact
-        })
+    for (const question of questions) {
+      if (flashcards.length >= count) break
+      
+      const answer = importantConcepts.find(c => c.toLowerCase().includes(question.toLowerCase().replace('?', '').split(' ')[0])) || "Review your study materials for this answer"
+      
+      flashcards.push({
+        id: id++,
+        front: question,
+        back: answer
       })
     }
-
+    
+    const usedSentences = new Set()
+    for (const sentence of sentences) {
+      if (flashcards.length >= count) break
+      
+      const trimmed = sentence.trim()
+      if (trimmed.length > 30 && trimmed.length < 100 && !usedSentences.has(trimmed)) {
+        const words = trimmed.split(' ')
+        if (words.length > 6) {
+          const keyWord = words.find(w => w.length > 6 && !['the', 'and', 'that', 'this', 'with'].includes(w.toLowerCase()))
+          if (keyWord) {
+            const blanked = trimmed.replace(keyWord, '__________')
+            flashcards.push({
+              id: id++,
+              front: `Fill in the blank: ${blanked}`,
+              back: trimmed
+            })
+            usedSentences.add(trimmed)
+          }
+        }
+      }
+    }
     
     while (flashcards.length < count) {
-      flashcards.push({
-        id: id++,
-        front: `Study question ${id} about the provided content`,
-        back: 'Review your study materials for this information'
-      })
+      const randomSentence = sentences[Math.floor(Math.random() * sentences.length)]
+      if (randomSentence && randomSentence.length > 20) {
+        flashcards.push({
+          id: id++,
+          front: `Explain: ${randomSentence.substring(0, 80)}...`,
+          back: randomSentence
+        })
+      } else {
+        flashcards.push({
+          id: id++,
+          front: `Study question ${id}`,
+          back: 'Review your study materials'
+        })
+      }
     }
-
-    return flashcards
+    
+    return flashcards.slice(0, count)
   }
 
   const [currentCard, setCurrentCard] = useState(0)
@@ -176,7 +201,6 @@ export default function FlashcardsPage() {
 
   return (
     <div className="min-h-screen bg-dark-bg">
-      {/* Header */}
       <header className="bg-dark-card border-b border-dark-border">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -198,10 +222,8 @@ export default function FlashcardsPage() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          {/* Input Section */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -209,7 +231,6 @@ export default function FlashcardsPage() {
           >
             <h2 className="text-xl font-semibold text-white mb-4">Create Flashcards</h2>
             
-            {/* Text Input */}
             <div className="mb-4">
               <label className="block text-white mb-2">Paste your study materials:</label>
               <textarea
@@ -220,7 +241,6 @@ export default function FlashcardsPage() {
               />
             </div>
 
-            {/* Number of Questions */}
             <div className="mb-4">
               <label className="block text-white mb-2">Number of flashcards to generate:</label>
               <select
@@ -236,7 +256,6 @@ export default function FlashcardsPage() {
               </select>
             </div>
 
-            {/* File Upload */}
             <div className="mb-6">
               <label className="block text-white mb-2">Or upload files:</label>
               <div className="flex flex-wrap gap-4 mb-4">
@@ -281,7 +300,6 @@ export default function FlashcardsPage() {
             </button>
           </motion.div>
 
-          {/* Loading State */}
           {isGenerating && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -296,7 +314,6 @@ export default function FlashcardsPage() {
             </motion.div>
           )}
 
-          {/* Flashcards Display */}
           {flashcards.length > 0 && !isGenerating && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -308,7 +325,6 @@ export default function FlashcardsPage() {
                 <p className="text-dark-text-secondary">Click the card to flip it</p>
               </div>
 
-              {/* Flashcard */}
               <div className="mb-8">
                 <div 
                   className="relative w-full h-64 cursor-pointer mx-auto"
@@ -322,7 +338,6 @@ export default function FlashcardsPage() {
                       transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
                     }}
                   >
-                    {/* Front of card */}
                     <div 
                       className="absolute w-full h-full bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl shadow-lg flex items-center justify-center p-6"
                       style={{ backfaceVisibility: 'hidden' }}
@@ -332,7 +347,6 @@ export default function FlashcardsPage() {
                       </div>
                     </div>
                     
-                    {/* Back of card */}
                     <div 
                       className="absolute w-full h-full bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl shadow-lg flex items-center justify-center p-6"
                       style={{ 
@@ -348,7 +362,6 @@ export default function FlashcardsPage() {
                 </div>
               </div>
 
-              {/* Navigation */}
               <div className="flex justify-between items-center mb-8">
                 <button
                   onClick={prevCard}
@@ -369,7 +382,6 @@ export default function FlashcardsPage() {
                 </button>
               </div>
 
-              {/* Bobby AI Assistance */}
               <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 rounded-lg p-4 border border-blue-400/30">
                 <div className="flex items-start space-x-3">
                   <div className="text-2xl">🐱</div>
