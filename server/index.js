@@ -258,6 +258,38 @@ const contactFormSchema = new mongoose.Schema({
 
 const ContactForm = mongoose.model('ContactForm', contactFormSchema);
 
+// Announcement Schema
+const announcementSchema = new mongoose.Schema({
+  message: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  createdBy: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  viewCount: {
+    type: Number,
+    default: 0
+  },
+  maxViews: {
+    type: Number,
+    default: 5
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Announcement = mongoose.model('Announcement', announcementSchema);
+
 // Discord webhook function
 async function sendDiscordWebhook(contactForm) {
   if (!DISCORD_WEBHOOK_URL) {
@@ -314,16 +346,26 @@ async function sendDiscordWebhook(contactForm) {
         att.mimetype && att.mimetype.startsWith('image/')
       );
       
-      if (imageAttachment && imageAttachment.url && !imageAttachment.url.startsWith('placeholder-')) {
-        embed.image = {
-          url: imageAttachment.url
-        };
-        // Also add it as a field for better visibility
-        embed.fields.push({
-          name: '📎 Image Attachment',
-          value: `[View Image](${imageAttachment.url})`,
-          inline: false
-        });
+      if (imageAttachment && imageAttachment.url) {
+        // Check if URL is valid (not a placeholder)
+        if (!imageAttachment.url.startsWith('placeholder-') && imageAttachment.url.startsWith('http')) {
+          embed.image = {
+            url: imageAttachment.url
+          };
+          // Also add it as a field for better visibility
+          embed.fields.push({
+            name: '📎 Image Attachment',
+            value: `[View Image](${imageAttachment.url})`,
+            inline: false
+          });
+        } else {
+          // If placeholder, just mention the file
+          embed.fields.push({
+            name: '📎 Image Attachment',
+            value: `Image file: ${imageAttachment.filename}`,
+            inline: false
+          });
+        }
       }
     }
 
@@ -1101,6 +1143,100 @@ app.post('/api/test-upload', upload.single('image'), (req, res) => {
     });
   } catch (error) {
     console.error('Test upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Announcement API endpoints
+app.get('/api/announcement', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      return res.json(null);
+    }
+
+    // Get active announcement that hasn't reached max views
+    const announcement = await Announcement.findOne({
+      isActive: true,
+      $expr: { $lt: ['$viewCount', '$maxViews'] }
+    }).sort({ createdAt: -1 });
+
+    if (announcement) {
+      // Increment view count
+      announcement.viewCount += 1;
+      await announcement.save();
+
+      // Check if it should be deactivated
+      if (announcement.viewCount >= announcement.maxViews) {
+        announcement.isActive = false;
+        await announcement.save();
+      }
+    }
+
+    res.json(announcement);
+  } catch (error) {
+    console.error('Error fetching announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/announcement', strictLimiter, async (req, res) => {
+  try {
+    const { message, createdBy } = req.body;
+
+    if (!message || !createdBy) {
+      return res.status(400).json({ error: 'Message and createdBy are required' });
+    }
+
+    // Deactivate all existing announcements
+    await Announcement.updateMany({ isActive: true }, { isActive: false });
+
+    const announcement = new Announcement({
+      message,
+      createdBy,
+      maxViews: 5,
+      viewCount: 0,
+      isActive: true
+    });
+
+    await announcement.save();
+    res.status(201).json(announcement);
+  } catch (error) {
+    console.error('Error creating announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/announcement/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const announcement = await Announcement.findByIdAndUpdate(
+      id,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found' });
+    }
+
+    res.json({ message: 'Announcement removed successfully', announcement });
+  } catch (error) {
+    console.error('Error removing announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/announcement', async (req, res) => {
+  try {
+    // Deactivate all active announcements
+    const result = await Announcement.updateMany(
+      { isActive: true },
+      { isActive: false }
+    );
+
+    res.json({ message: 'All announcements removed successfully', count: result.modifiedCount });
+  } catch (error) {
+    console.error('Error removing announcements:', error);
     res.status(500).json({ error: error.message });
   }
 });
