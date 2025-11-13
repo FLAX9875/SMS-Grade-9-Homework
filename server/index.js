@@ -12,6 +12,8 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 require('dotenv').config();
 
 const app = express();
@@ -106,11 +108,11 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit for images
+    fileSize: 50 * 1024 * 1024 // 50MB limit for documents
   },
   fileFilter: (req, file, cb) => {
     // Allow images and common document types
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt|ppt|pptx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
     
@@ -648,6 +650,82 @@ app.post('/api/upload', upload.array('files', 5), (req, res) => {
   } catch (error) {
     console.error('Error uploading files:', error);
     res.status(500).json({ error: 'Failed to upload files' });
+  }
+});
+
+// File text extraction endpoint
+app.post('/api/extract-text', upload.array('files', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const extractedTexts = [];
+    const errors = [];
+
+    for (const file of req.files) {
+      try {
+        const filePath = file.path;
+        const fileExt = path.extname(file.originalname).toLowerCase();
+        let text = '';
+
+        if (fileExt === '.pdf') {
+          const dataBuffer = fs.readFileSync(filePath);
+          const pdfData = await pdfParse(dataBuffer);
+          text = pdfData.text;
+        } else if (fileExt === '.docx') {
+          const result = await mammoth.extractRawText({ path: filePath });
+          text = result.value;
+        } else if (fileExt === '.txt') {
+          text = fs.readFileSync(filePath, 'utf-8');
+        } else if (fileExt === '.doc') {
+          text = '[.doc files are not supported. Please convert to .docx or .pdf]';
+          errors.push(`${file.originalname}: .doc format not supported. Please convert to .docx or .pdf`);
+        } else if (fileExt === '.ppt' || fileExt === '.pptx') {
+          text = '[PowerPoint files are not supported. Please convert to .pdf or copy text to .txt]';
+          errors.push(`${file.originalname}: PowerPoint format not supported. Please convert to .pdf or copy text to .txt`);
+        } else {
+          text = '[Unsupported file format. Please use .pdf, .docx, or .txt]';
+          errors.push(`${file.originalname}: Unsupported format. Please use .pdf, .docx, or .txt`);
+        }
+
+        extractedTexts.push({
+          filename: file.originalname,
+          text: text,
+          size: file.size
+        });
+
+        // Clean up uploaded file
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileError) {
+        console.error(`Error processing file ${file.originalname}:`, fileError);
+        errors.push(`${file.originalname}: ${fileError.message}`);
+        
+        // Clean up on error
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      }
+    }
+
+    // Combine all extracted text
+    const combinedText = extractedTexts.map(item => `=== ${item.filename} ===\n${item.text}`).join('\n\n');
+
+    res.json({
+      success: true,
+      text: combinedText,
+      files: extractedTexts.map(item => ({
+        filename: item.filename,
+        size: item.size,
+        textLength: item.text.length
+      })),
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Error extracting text from files:', error);
+    res.status(500).json({ error: 'Failed to extract text from files' });
   }
 });
 
