@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter, useSearchParams } from 'next/navigation'
+import axios from 'axios'
 
 export default function FlashcardsPage() {
   const router = useRouter()
@@ -42,11 +43,48 @@ export default function FlashcardsPage() {
     setIsGenerating(true)
     
     try {
-      const generatedFlashcards = generateFlashcardsFromContent(inputText, numQuestions)
+      let contentToUse = inputText
+
+      // If files are uploaded, extract text from them
+      if (uploadedFiles.length > 0) {
+        const formData = new FormData()
+        uploadedFiles.forEach(file => {
+          formData.append('files', file)
+        })
+
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://sms-grade-9-homework-server.onrender.com'
+        const response = await axios.post(`${API_URL}/api/extract-text`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          timeout: 60000
+        })
+
+        if (response.data.success) {
+          const extractedText = response.data.text
+          // Combine with existing text if any
+          contentToUse = inputText.trim() 
+            ? `${inputText}\n\n${extractedText}` 
+            : extractedText
+
+          // Show warnings if any
+          if (response.data.errors && response.data.errors.length > 0) {
+            alert(`Some files couldn't be processed:\n${response.data.errors.join('\n')}`)
+          }
+        } else {
+          throw new Error('Failed to extract text from files')
+        }
+      }
+
+      const generatedFlashcards = generateFlashcardsFromContent(contentToUse, numQuestions)
       setFlashcards(generatedFlashcards)
     } catch (error) {
       console.error('Error generating flashcards:', error)
-      alert('Failed to generate flashcards. Please try again.')
+      if (axios.isAxiosError(error)) {
+        alert(`Failed to process files: ${error.response?.data?.error || error.message}`)
+      } else {
+        alert('Failed to generate flashcards. Please try again.')
+      }
     } finally {
       setIsGenerating(false)
     }
@@ -274,6 +312,9 @@ export default function FlashcardsPage() {
                   onChange={handleFileUpload}
                   className="hidden"
                 />
+                <p className="text-xs text-dark-text-secondary mt-2">
+                  Supported: PDF, Word (.docx), Text files. Note: .doc and PowerPoint files need to be converted.
+                </p>
                 <span className="text-dark-text-secondary self-center">
                   PDF, Word, PowerPoint, Text files
                 </span>
