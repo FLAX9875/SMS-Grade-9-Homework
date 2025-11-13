@@ -70,6 +70,7 @@ export default function Home() {
   const [username, setUsername] = useState('')
   const [activeTab, setActiveTab] = useState<'main' | 'done' | 'studying'>('main')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [announcement, setAnnouncement] = useState<{ message: string; _id: string } | null>(null)
   const router = useRouter()
 
   
@@ -132,14 +133,35 @@ export default function Home() {
     }
   }
 
+  const fetchAnnouncement = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/announcement`, {
+        timeout: 10000,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      if (response.data && response.data.message) {
+        setAnnouncement(response.data)
+      } else {
+        setAnnouncement(null)
+      }
+    } catch (error) {
+      console.error('Error fetching announcement:', error)
+      setAnnouncement(null)
+    }
+  }
+
   useEffect(() => {
     fetchHomework()
     fetchStudyLinks()
+    fetchAnnouncement()
     
     
     const interval = setInterval(() => {
       fetchHomework()
       fetchStudyLinks()
+      fetchAnnouncement()
     }, 60000)
     
     return () => clearInterval(interval)
@@ -282,6 +304,16 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-dark-bg">
+      {/* Announcement Banner */}
+      {announcement && (
+        <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 text-white py-2 overflow-hidden relative z-50">
+          <div className="marquee-container">
+            <div className="marquee-content">
+              <span className="font-semibold">📢 {announcement.message}</span>
+            </div>
+          </div>
+        </div>
+      )}
       <Header onContactClick={() => setIsContactModalOpen(true)} />
       
       <main className="container mx-auto px-4 py-8">
