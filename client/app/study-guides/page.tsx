@@ -38,6 +38,37 @@ export default function StudyGuidesPage() {
     setIsGenerating(true)
     
     try {
+      let contentToUse = inputText
+
+      // If files are uploaded, extract text from them
+      if (uploadedFiles.length > 0) {
+        const formData = new FormData()
+        uploadedFiles.forEach(file => {
+          formData.append('files', file)
+        })
+
+        const extractResponse = await axios.post(`${API_URL}/api/extract-text`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          timeout: 60000
+        })
+
+        if (extractResponse.data.success) {
+          const extractedText = extractResponse.data.text
+          // Combine with existing text if any
+          contentToUse = inputText.trim() 
+            ? `${inputText}\n\n${extractedText}` 
+            : extractedText
+
+          // Show warnings if any
+          if (extractResponse.data.errors && extractResponse.data.errors.length > 0) {
+            alert(`Some files couldn't be processed:\n${extractResponse.data.errors.join('\n')}`)
+          }
+        } else {
+          throw new Error('Failed to extract text from files')
+        }
+      }
      
       const response = await axios.post(`${API_URL}/api/bobby/chat`, {
         message: `Create a comprehensive, well-organized study guide using ALL the information provided. 
@@ -50,9 +81,9 @@ IMPORTANT:
 - Keep all definitions and descriptions intact
 - Make it clean and easy to read
 
-Here is the content:\n\n${inputText}`
+Here is the content:\n\n${contentToUse}`
       }, {
-        timeout: 30000
+        timeout: 60000
       })
 
       if (response.data && response.data.response) {
@@ -76,7 +107,30 @@ Here is the content:\n\n${inputText}`
     } catch (error) {
       console.error('Error generating study guide:', error)
       
-      const formattedContent = generateComprehensiveStudyGuide(inputText)
+      // Fallback to local generation if AI fails
+      let contentToUse = inputText
+      if (uploadedFiles.length > 0) {
+        // Try to extract text from files for fallback
+        try {
+          const formData = new FormData()
+          uploadedFiles.forEach(file => {
+            formData.append('files', file)
+          })
+          const response = await axios.post(`${API_URL}/api/extract-text`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 60000
+          })
+          if (response.data.success) {
+            contentToUse = inputText.trim() 
+              ? `${inputText}\n\n${response.data.text}` 
+              : response.data.text
+          }
+        } catch (fileError) {
+          console.error('Error extracting text from files:', fileError)
+        }
+      }
+      
+      const formattedContent = generateComprehensiveStudyGuide(contentToUse)
       setStudyGuide(formattedContent)
     } finally {
       setIsGenerating(false)
@@ -520,6 +574,9 @@ STUDY TIPS
                 <span className="text-dark-text-secondary self-center">
                   PDF, Word, PowerPoint, Text files
                 </span>
+                <p className="text-xs text-dark-text-secondary mt-2">
+                  Supported: PDF, Word (.docx), Text files. Note: .doc and PowerPoint files need to be converted.
+                </p>
               </div>
               
               {uploadedFiles.length > 0 && (
