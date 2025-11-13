@@ -59,17 +59,40 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       
       const username = localStorage.getItem('homework-username') || 'Anonymous'
       
+      // Upload files first if any
+      let uploadedAttachments = []
+      if (files.length > 0) {
+        const formData = new FormData()
+        files.forEach(file => {
+          formData.append('files', file)
+        })
+
+        try {
+          const uploadResponse = await axios.post(`${API_URL}/api/upload`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+            timeout: 30000
+          })
+
+          if (uploadResponse.data.success && uploadResponse.data.files) {
+            uploadedAttachments = uploadResponse.data.files.map((file: any) => ({
+              filename: file.filename,
+              mimetype: file.mimetype,
+              url: file.url
+            }))
+          }
+        } catch (uploadError) {
+          console.error('Error uploading files:', uploadError)
+          // Continue without attachments if upload fails
+        }
+      }
+      
       
       const submitData = {
         ...formData,
         submittedBy: username,
-        attachments: files.map(file => ({
-          filename: file.name,
-          mimetype: file.type,
-          
-          
-          url: `placeholder-${file.name}`
-        }))
+        attachments: uploadedAttachments
       }
 
       
