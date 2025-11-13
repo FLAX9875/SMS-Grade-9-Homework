@@ -41,7 +41,17 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setFiles(Array.from(e.target.files))
+      const selectedFiles = Array.from(e.target.files)
+      // Filter to only PNG files
+      const pngFiles = selectedFiles.filter(file => {
+        const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+        if (!isPng) {
+          alert(`${file.name} is not a PNG file. Only PNG images are supported.`)
+        }
+        return isPng
+      })
+      // Only allow one PNG file
+      setFiles(pngFiles.slice(0, 1))
     }
   }
 
@@ -59,32 +69,42 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       
       const username = localStorage.getItem('homework-username') || 'Anonymous'
       
-      // Upload files first if any
+      // Upload files first if any (only PNG images)
       let uploadedAttachments = []
       if (files.length > 0) {
-        const formData = new FormData()
-        files.forEach(file => {
-          formData.append('files', file)
+        // Filter to only PNG files
+        const pngFiles = files.filter(file => {
+          const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+          if (!isPng) {
+            alert(`${file.name} is not a PNG file. Only PNG images are supported.`)
+          }
+          return isPng
         })
 
-        try {
-          const uploadResponse = await axios.post(`${API_URL}/api/upload`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-            timeout: 30000
-          })
+        if (pngFiles.length > 0) {
+          const formData = new FormData()
+          // Only upload the first PNG file
+          formData.append('files', pngFiles[0])
 
-          if (uploadResponse.data.success && uploadResponse.data.files) {
-            uploadedAttachments = uploadResponse.data.files.map((file: any) => ({
-              filename: file.filename,
-              mimetype: file.mimetype,
-              url: file.url
-            }))
+          try {
+            const uploadResponse = await axios.post(`${API_URL}/api/upload`, formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data',
+              },
+              timeout: 30000
+            })
+
+            if (uploadResponse.data.success && uploadResponse.data.files) {
+              uploadedAttachments = uploadResponse.data.files.map((file: any) => ({
+                filename: file.filename,
+                mimetype: 'image/png',
+                url: file.url
+              }))
+            }
+          } catch (uploadError) {
+            console.error('Error uploading files:', uploadError)
+            // Continue without attachments if upload fails
           }
-        } catch (uploadError) {
-          console.error('Error uploading files:', uploadError)
-          // Continue without attachments if upload fails
         }
       }
       
@@ -261,15 +281,17 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
                   {formData.type === 'issue' && (
                     <div>
                       <label className="block text-sm font-medium text-white mb-2">
-                        Attach Files (Optional)
+                        Attach Image (Optional - PNG only)
                       </label>
                       <input
                         type="file"
-                        multiple
                         onChange={handleFileChange}
                         className="w-full px-3 py-2 bg-dark-border border border-dark-border rounded-md text-white file:mr-4 file:py-1 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-500 file:text-white hover:file:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        accept="image/*,.pdf,.doc,.docx"
+                        accept="image/png,.png"
                       />
+                      <p className="text-xs text-dark-text-secondary mt-1">
+                        Only PNG images are supported for webhook display
+                      </p>
                       {files.length > 0 && (
                         <div className="mt-2">
                           <p className="text-sm text-dark-text-secondary">Selected files:</p>
