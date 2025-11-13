@@ -124,6 +124,24 @@ const upload = multer({
   }
 });
 
+// Separate multer instance for contact form images (PNG only)
+const uploadContactImage = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit for PNG images
+  },
+  fileFilter: (req, file, cb) => {
+    // Only allow PNG images for contact form
+    const isPng = file.mimetype === 'image/png' || path.extname(file.originalname).toLowerCase() === '.png';
+    
+    if (isPng) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only PNG images are allowed for contact form attachments'));
+    }
+  }
+});
+
 // MongoDB connection
 let dbConnected = false;
 mongoose
@@ -341,28 +359,32 @@ async function sendDiscordWebhook(contactForm) {
         inline: false
       });
 
-      // If there are image attachments, add the first image to the embed
+      // If there are image attachments, add the first PNG image to the embed
       const imageAttachment = contactForm.attachments.find(att => 
-        att.mimetype && att.mimetype.startsWith('image/')
+        att.mimetype && (att.mimetype === 'image/png' || att.mimetype.startsWith('image/'))
       );
       
       if (imageAttachment && imageAttachment.url) {
-        // Check if URL is valid (not a placeholder)
-        if (!imageAttachment.url.startsWith('placeholder-') && imageAttachment.url.startsWith('http')) {
+        // Check if URL is valid (not a placeholder) and is PNG
+        const isPng = imageAttachment.mimetype === 'image/png' || 
+                     imageAttachment.filename.toLowerCase().endsWith('.png');
+        
+        if (isPng && !imageAttachment.url.startsWith('placeholder-') && imageAttachment.url.startsWith('http')) {
+          // Use the image URL directly in the embed
           embed.image = {
             url: imageAttachment.url
           };
           // Also add it as a field for better visibility
           embed.fields.push({
-            name: '📎 Image Attachment',
+            name: '📎 PNG Image Attachment',
             value: `[View Image](${imageAttachment.url})`,
             inline: false
           });
-        } else {
-          // If placeholder, just mention the file
+        } else if (isPng) {
+          // If placeholder or invalid URL, just mention the file
           embed.fields.push({
-            name: '📎 Image Attachment',
-            value: `Image file: ${imageAttachment.filename}`,
+            name: '📎 PNG Image Attachment',
+            value: `PNG file: ${imageAttachment.filename}`,
             inline: false
           });
         }
@@ -674,24 +696,35 @@ app.delete('/api/study-links/:id', async (req, res) => {
   }
 });
 
-// File upload endpoint
-app.post('/api/upload', upload.array('files', 5), (req, res) => {
+// File upload endpoint (for contact form - PNG only, single file)
+app.post('/api/upload', uploadContactImage.single('files'), (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.originalname,
-      url: `${req.protocol}://${req.get('host')}/${file.filename}`,
-      mimetype: file.mimetype,
-      size: file.size
-    }));
+    // Verify file is PNG
+    const isPng = req.file.mimetype === 'image/png' || path.extname(req.file.originalname).toLowerCase() === '.png';
+    
+    if (!isPng) {
+      // Delete non-PNG file
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Only PNG images are allowed' });
+    }
 
-    res.json({ success: true, files: uploadedFiles });
+    const uploadedFile = {
+      filename: req.file.originalname,
+      url: `${req.protocol}://${req.get('host')}/${req.file.filename}`,
+      mimetype: 'image/png', // Force PNG mimetype
+      size: req.file.size
+    };
+
+    res.json({ success: true, files: [uploadedFile] });
   } catch (error) {
-    console.error('Error uploading files:', error);
-    res.status(500).json({ error: 'Failed to upload files' });
+    console.error('Error uploading file:', error);
+    res.status(500).json({ error: error.message || 'Failed to upload file' });
   }
 });
 
